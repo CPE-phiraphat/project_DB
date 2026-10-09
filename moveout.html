@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>แจ้งย้ายออก | ระบบจัดการหอพัก</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Sarabun', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        .modal-animate { animation: fadeIn 0.2s ease-out; }
+    </style>
+</head>
+<body class="bg-gray-50 flex h-screen overflow-hidden relative">
+
+    <div id="sidebarOverlay" class="fixed inset-0 bg-black/50 z-40 hidden lg:hidden"></div>
+
+    <aside id="sidebar" class="fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 flex flex-col shadow-2xl lg:shadow-sm transform -translate-x-full transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static shrink-0">
+        <div class="p-5 border-b border-gray-200 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <span class="text-3xl">🏢</span>
+                <h1 class="text-xl font-bold text-blue-800">ศิรินทร์ พลัส</h1>
+            </div>
+            <button id="closeSidebar" class="lg:hidden p-2 text-gray-500 hover:bg-gray-100 rounded-lg">✕</button>
+        </div>
+        <nav class="flex-1 p-4 space-y-1 overflow-y-auto no-scrollbar">
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-2">ระบบสรุปผล</div>
+            <a href="dashboard.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition"><span>📊</span> แดชบอร์ดภาพรวม</a>
+            <a href="reports.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition"><span>📈</span> รายงาน & Export</a>
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-6">การจัดการหลัก</div>
+            <a href="rooms.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition"><span>🚪</span> ข้อมูลห้องพัก</a>
+            <a href="bookings.html" class="flex items-center justify-between px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition"><div class="flex items-center gap-3"><span>📅</span> รายการจองห้อง</div><span id="badgeBookings" class="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full hidden">0</span></a>
+            <a href="tenants.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition"><span>👥</span> ข้อมูลผู้เช่า</a>
+            <a href="contracts.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition"><span>📄</span> ทะเบียนสัญญาเช่า</a>
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-6">ระบบการเงิน</div>
+            <a href="invoices.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition"><span>➕</span> ออกใบแจ้งหนี้</a>
+            <a href="payments.html" class="flex items-center justify-between px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition"><div class="flex items-center gap-3"><span>💲</span> ตรวจสอบการชำระเงิน</div><span id="badgePayments" class="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full hidden">0</span></a>
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-6">บริการและคำร้อง</div>
+            <a href="transfer.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition"><span>🔄</span> แจ้งย้ายห้อง</a>
+            <a href="moveout.html" class="flex items-center gap-3 px-4 py-3.5 bg-blue-50 text-blue-600 rounded-lg font-medium transition"><span>📤</span> แจ้งย้ายออก</a>
+        </nav>
+        <div class="p-4 border-t border-gray-200">
+            <button onclick="logout()" class="w-full flex items-center justify-center gap-2 px-4 py-3 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition font-medium"><span>🚪</span> ออกจากระบบ</button>
+        </div>
+    </aside>
+
+    <main class="flex-1 flex flex-col overflow-y-auto w-full">
+        <header class="bg-white border-b border-gray-200 px-4 py-3 lg:px-8 lg:py-4 flex justify-between items-center sticky top-0 z-30">
+            <div class="flex items-center gap-3">
+                <button id="menuToggle" class="lg:hidden p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-lg"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg></button>
+                <h2 class="text-lg lg:text-xl font-bold text-gray-800">แจ้งย้ายออก</h2>
+            </div>
+            <div class="flex items-center gap-3 bg-gray-50 px-4 py-2 rounded-full border border-gray-200">
+                <span class="text-sm text-gray-500 hidden md:inline">ผู้ใช้งาน:</span>
+                <span id="userNameDisplay" class="text-sm font-semibold text-blue-700">admin</span>
+            </div>
+        </header>
+
+        <div class="p-4 lg:p-8">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-3">
+                <div>
+                    <h3 class="text-lg font-bold text-gray-800">จัดการการย้ายออก</h3>
+                    <p id="moveOutSubtitle" class="text-sm text-gray-500">ประวัติการย้ายออกในอาคารปัจจุบัน</p>
+                </div>
+                <div class="flex flex-wrap gap-2 w-full md:w-auto">
+                    <div class="flex items-center gap-2 bg-white border border-blue-300 rounded-lg px-3 py-2 shadow-sm min-w-[180px]">
+                        <span class="text-sm">🏢</span>
+                        <select id="buildingSelector" class="bg-transparent text-sm font-semibold text-blue-700 outline-none cursor-pointer flex-1"><option value="">กำลังโหลด...</option></select>
+                    </div>
+                    <button onclick="openCreateModal()" class="bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2 rounded-lg shadow-sm flex items-center gap-2 transition">
+                        <span>📤</span> ย้ายออก
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
+                <div class="flex flex-col md:flex-row gap-3">
+                    <input type="text" id="searchMoveOut" placeholder="🔍 ค้นหาชื่อผู้เช่า, เลขห้อง, เลขที่คำร้อง..." class="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-blue-500">
+                    <div class="text-sm text-gray-500 flex items-center">พบ <span id="moveOutCount" class="font-bold text-blue-600 mx-1">0</span> รายการ</div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left min-w-[1100px]">
+                        <thead class="text-xs text-gray-500 uppercase bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-3 font-semibold">เลขที่คำร้อง</th>
+                                <th class="px-4 py-3 font-semibold">ผู้เช่า</th>
+                                <th class="px-4 py-3 font-semibold">ห้อง</th>
+                                <th class="px-4 py-3 font-semibold">วันที่ย้ายออก</th>
+                                <th class="px-4 py-3 font-semibold">คืนเงินประกัน</th>
+                                <th class="px-4 py-3 font-semibold">จัดการ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="moveOutTableBody" class="divide-y divide-gray-100">
+                            <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">กำลังโหลดข้อมูล...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal: Create Move-Out -->
+    <div id="createModal" class="fixed inset-0 bg-black/50 z-[60] hidden items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl modal-animate max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between p-5 border-b border-gray-200 sticky top-0 bg-white z-20">
+                <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2"><span>📤</span> บันทึกการย้ายออก</h3>
+                <button type="button" onclick="closeCreateModal()" class="p-2 text-gray-400 hover:bg-gray-100 rounded-lg">✕</button>
+            </div>
+            <form id="moveOutForm" class="p-5 space-y-5">
+
+                <!-- เลือกผู้เช่า -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">เลือกผู้เช่า (ที่มีสัญญา ACTIVE) <span class="text-red-500">*</span></label>
+                    <select id="tenantSelect" required class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-base">
+                        <option value="">-- กำลังโหลด --</option>
+                    </select>
+                </div>
+
+                <!-- ข้อมูลสัญญา -->
+                <div id="currentInfo" class="hidden bg-gray-50 rounded-lg p-4">
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                        <div><p class="text-xs text-gray-500">ห้อง</p><p class="font-bold text-blue-700 text-lg" id="infoRoom">-</p></div>
+                        <div><p class="text-xs text-gray-500">เลขที่สัญญา</p><p class="font-medium text-gray-800" id="infoContractNo">-</p></div>
+                        <div><p class="text-xs text-gray-500">ค่าเช่า</p><p class="font-medium text-gray-800" id="infoRent">-</p></div>
+                        <div><p class="text-xs text-gray-500">เงินประกัน</p><p class="font-bold text-green-600 text-lg" id="infoDeposit">-</p></div>
+                    </div>
+                </div>
+
+                <!-- วันที่ -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">วันที่แจ้ง <span class="text-red-500">*</span></label>
+                        <input type="date" id="noticeDate" required class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">วันที่ย้ายออกจริง <span class="text-red-500">*</span></label>
+                        <input type="date" id="moveOutDate" required class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                </div>
+
+                <!-- เหตุผล -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">ประเภทเหตุผล</label>
+                        <select id="reasonType" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="END_RENTAL">🏁 เลิกเช่า</option>
+                            <option value="MOVE_LOCATION">📍 ย้ายที่อยู่</option>
+                            <option value="JOB_CHANGE">💼 เปลี่ยนงาน</option>
+                            <option value="PERSONAL">👤 เหตุผลส่วนตัว</option>
+                            <option value="OTHER">📌 อื่นๆ</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">เหตุผลเพิ่มเติม</label>
+                        <input type="text" id="reasonNote" placeholder="เช่น กลับบ้านต่างจังหวัด" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                </div>
+
+                <!-- ⭐ มิเตอร์ไฟฟ้า -->
+                <div class="border-t border-gray-200 pt-4">
+                    <h4 class="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+                        ⚡ มิเตอร์ไฟฟ้าครั้งสุดท้าย
+                        <span id="elecTypeBadge" class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600"></span>
+                    </h4>
+                    <div class="grid grid-cols-3 gap-3">
+                        <div>
+                            <label class="block text-xs text-gray-600 mb-1">เลขเริ่มต้น</label>
+                            <input type="number" id="initialElec" readonly class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-sm">
+                        </div>
+                        <div>
+                            <label id="finalElecLabel" class="block text-xs text-gray-600 mb-1">เลขครั้งสุดท้าย</label>
+                            <input type="number" id="finalElec" step="0.01" value="0" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm">
+                        </div>
+                        <div>
+                            <label id="elecPriceLabel" class="block text-xs text-gray-600 mb-1">ราคา/หน่วย (฿)</label>
+                            <input type="number" id="elecUnitPrice" step="0.01" value="" placeholder="กรอก" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm">
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2">ค่าไฟครั้งสุดท้าย: <span id="elecAmount" class="font-bold text-red-600">0 ฿</span></p>
+                </div>
+
+                <!-- ⭐ มิเตอร์น้ำ -->
+                <div class="border-t border-gray-200 pt-4">
+                    <h4 class="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+                        💧 มิเตอร์น้ำครั้งสุดท้าย
+                        <span id="waterTypeBadge" class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600"></span>
+                    </h4>
+                    <div class="grid grid-cols-3 gap-3">
+                        <div>
+                            <label class="block text-xs text-gray-600 mb-1">เลขเริ่มต้น</label>
+                            <input type="number" id="initialWater" readonly class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-sm">
+                        </div>
+                        <div>
+                            <label id="finalWaterLabel" class="block text-xs text-gray-600 mb-1">เลขครั้งสุดท้าย</label>
+                            <input type="number" id="finalWater" step="0.01" value="0" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm">
+                        </div>
+                        <div>
+                            <label id="waterPriceLabel" class="block text-xs text-gray-600 mb-1">ราคา/หน่วย (฿)</label>
+                            <input type="number" id="waterUnitPrice" step="0.01" value="" placeholder="กรอก" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm">
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2">ค่าน้ำครั้งสุดท้าย: <span id="waterAmount" class="font-bold text-red-600">0 ฿</span></p>
+                </div>
+
+                <!-- หักเงินประกัน -->
+                <div class="border-t border-gray-200 pt-4">
+                    <h4 class="text-sm font-bold text-gray-700 mb-3">💰 หักจากเงินประกัน</h4>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs text-gray-600 mb-1">ค่าเสียหาย (฿)</label>
+                            <input type="number" id="damageFee" min="0" step="10" value="0" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-600 mb-1">รายละเอียดค่าเสียหาย</label>
+                            <input type="text" id="damageNote" placeholder="เช่น กระจกแตก, ผนังมีรอย" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-600 mb-1">หักอื่นๆ (฿)</label>
+                            <input type="number" id="otherDeduction" min="0" step="10" value="0" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-600 mb-1">รายละเอียดอื่นๆ</label>
+                            <input type="text" id="otherDeductionNote" placeholder="เช่น ค่าทำความสะอาด" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- สรุปยอด -->
+                <div class="bg-blue-50 border-2 border-blue-200 rounded-lg p-4">
+                    <h4 class="text-sm font-bold text-gray-800 mb-3">🧮 สรุปยอดเงิน</h4>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between"><span>เงินประกัน:</span><span id="sumDeposit" class="font-medium text-green-600">0 ฿</span></div>
+                        <div class="flex justify-between text-red-600"><span>ค่าไฟครั้งสุดท้าย:</span><span id="sumElec">-0 ฿</span></div>
+                        <div class="flex justify-between text-red-600"><span>ค่าน้ำครั้งสุดท้าย:</span><span id="sumWater">-0 ฿</span></div>
+                        <div class="flex justify-between text-red-600"><span>ยอดค้างชำระ:</span><span id="sumOutstanding">-0 ฿</span></div>
+                        <div class="flex justify-between text-red-600"><span>ค่าเสียหาย:</span><span id="sumDamage">-0 ฿</span></div>
+                        <div class="flex justify-between text-red-600"><span>หักอื่นๆ:</span><span id="sumOther">-0 ฿</span></div>
+                        <div class="flex justify-between font-bold text-lg border-t-2 border-blue-300 pt-2 mt-2">
+                            <span id="netLabel">เงินคืนผู้เช่า:</span>
+                            <span id="sumNet" class="text-green-700">0 ฿</span>
+                        </div>
+                    </div>
+                    <p id="shortageWarning" class="hidden text-xs text-red-700 font-bold mt-2"></p>
+                </div>
+
+                <!-- หมายเหตุ -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">หมายเหตุ</label>
+                    <textarea id="note" rows="2" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-none text-sm" placeholder="บันทึกเพิ่มเติม..."></textarea>
+                </div>
+
+                <div class="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-800">
+                    ⚠️ <strong>หมายเหตุ:</strong> การย้ายออกจะปิดสัญญาและคืนห้องทันที ไม่สามารถย้อนกลับได้
+                </div>
+
+                <div class="flex gap-2 pt-2">
+                    <button type="button" onclick="closeCreateModal()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2.5 rounded-lg transition">ยกเลิก</button>
+                    <button type="submit" id="saveBtn" class="flex-1 bg-red-600 hover:bg-red-700 text-white font-medium py-2.5 rounded-lg transition flex items-center justify-center gap-2"><span id="saveBtnText">✅ ยืนยันการย้ายออก</span></button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: View -->
+    <div id="viewModal" class="fixed inset-0 bg-black/50 z-[60] hidden items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl modal-animate max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between p-5 border-b border-gray-200 sticky top-0 bg-gradient-to-r from-red-50 to-red-100 z-10">
+                <div class="flex items-center gap-3">
+                    <div class="w-14 h-14 bg-red-500 text-white rounded-full flex items-center justify-center text-2xl shadow-md">📤</div>
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-800" id="viewMoveOutNo">การย้ายออก</h3>
+                        <p class="text-xs text-gray-500" id="viewMoveOutDate">-</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeViewModal()" class="p-2 text-gray-400 hover:bg-white/50 rounded-lg">✕</button>
+            </div>
+
+            <div class="p-5 space-y-4">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <p class="text-xs text-gray-500 mb-1">ผู้เช่า</p>
+                        <p class="font-medium text-gray-800" id="viewTenantName">-</p>
+                        <p class="text-xs text-gray-500" id="viewTenantPhone">-</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-500 mb-1">ห้อง / สัญญา</p>
+                        <p class="font-bold text-blue-600" id="viewRoom">-</p>
+                        <p class="text-xs text-gray-500" id="viewContractNo">-</p>
+                    </div>
+                </div>
+
+                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                    <p class="text-xs text-gray-500 mb-1">เหตุผลการย้ายออก</p>
+                    <p class="text-sm font-medium text-gray-800" id="viewReason">-</p>
+                </div>
+
+                <div>
+                    <h4 class="text-sm font-bold text-gray-700 mb-3">💰 รายละเอียดการเงิน</h4>
+                    <div class="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
+                        <div class="flex justify-between"><span>เงินประกัน:</span><span id="viewDeposit" class="font-medium text-green-600">-</span></div>
+                        <div class="flex justify-between text-red-600"><span>ค่าไฟสุดท้าย:</span><span id="viewElec">-</span></div>
+                        <div class="flex justify-between text-red-600"><span>ค่าน้ำสุดท้าย:</span><span id="viewWater">-</span></div>
+                        <div class="flex justify-between text-red-600"><span>ยอดค้างชำระ:</span><span id="viewOutstanding">-</span></div>
+                        <div class="flex justify-between text-red-600"><span>ค่าเสียหาย:</span><span id="viewDamage">-</span></div>
+                        <div class="flex justify-between text-red-600"><span>หักอื่นๆ:</span><span id="viewOther">-</span></div>
+                        <div class="flex justify-between font-bold text-lg border-t-2 border-gray-300 pt-2 mt-2">
+                            <span id="viewNetLabel">เงินคืน:</span>
+                            <span id="viewNet" class="text-green-700">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="viewNoteWrap" class="hidden">
+                    <p class="text-xs text-gray-500 mb-1">หมายเหตุ:</p>
+                    <p class="text-sm text-gray-700 bg-gray-50 rounded p-3" id="viewNote">-</p>
+                </div>
+
+                <div class="text-xs text-gray-500 border-t pt-3">
+                    <p>ดำเนินการโดย: <span id="viewProcessedBy" class="font-medium">-</span></p>
+                    <p>เมื่อ: <span id="viewProcessedAt" class="font-medium">-</span></p>
+                </div>
+            </div>
+
+            <div class="p-5 border-t border-gray-200 flex gap-2 sticky bottom-0 bg-white">
+                <button type="button" onclick="closeViewModal()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2.5 rounded-lg transition">ปิด</button>
+                <button type="button" id="viewDeleteBtn" class="flex-1 bg-red-600 hover:bg-red-700 text-white font-medium py-2.5 rounded-lg transition">🗑️ ลบ</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script src="move-out.js"></script>
+</body>
+</html>

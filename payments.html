@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ตรวจสอบการชำระเงิน | ระบบจัดการหอพัก</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Sarabun', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        .modal-animate { animation: fadeIn 0.2s ease-out; }
+    </style>
+</head>
+<body class="bg-gray-50 flex h-screen overflow-hidden relative">
+
+    <div id="sidebarOverlay" class="fixed inset-0 bg-black/50 z-40 hidden lg:hidden"></div>
+
+    <aside id="sidebar" class="fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 flex flex-col shadow-2xl lg:shadow-sm transform -translate-x-full transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static shrink-0">
+        <div class="p-5 border-b border-gray-200 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <span class="text-3xl">🏢</span>
+                <h1 class="text-xl font-bold text-blue-800">ศิรินทร์ พลัส</h1>
+            </div>
+            <button id="closeSidebar" class="lg:hidden p-2 text-gray-500 hover:bg-gray-100 rounded-lg">✕</button>
+        </div>
+        
+        <nav class="flex-1 p-4 space-y-1 overflow-y-auto no-scrollbar">
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-2">ระบบสรุปผล</div>
+            <a href="dashboard.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition"><span>📊</span> แดชบอร์ดภาพรวม</a>
+            <a href="reports.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition"><span>📈</span> รายงาน & Export</a>
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-6">การจัดการหลัก</div>
+            <a href="rooms.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition"><span>🚪</span> ข้อมูลห้องพัก</a>
+            <a href="bookings.html" class="flex items-center justify-between px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition"><div class="flex items-center gap-3"><span>📅</span> รายการจองห้อง</div><span id="badgeBookings" class="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full hidden">0</span></a>
+            <a href="tenants.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition"><span>👥</span> ข้อมูลผู้เช่า</a>
+            <a href="contracts.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition"><span>📄</span> ทะเบียนสัญญาเช่า</a>
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-6">ระบบการเงิน</div>
+            <a href="invoices.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition"><span>➕</span> ออกใบแจ้งหนี้</a>
+            <a href="payments.html" class="flex items-center justify-between px-4 py-3.5 bg-blue-50 text-blue-600 rounded-lg font-medium transition"><div class="flex items-center gap-3"><span>💲</span> ตรวจสอบการชำระเงิน</div><span id="badgePayments" class="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full hidden">0</span></a>
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-6">บริการและคำร้อง</div>
+            <a href="transfer.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition"><span>🔄</span> แจ้งย้ายห้อง</a>
+            <a href="moveout.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition"><span>📤</span> แจ้งย้ายออก</a>
+        </nav>
+
+        <div class="p-4 border-t border-gray-200">
+            <button onclick="logout()" class="w-full flex items-center justify-center gap-2 px-4 py-3 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition font-medium"><span>🚪</span> ออกจากระบบ</button>
+        </div>
+    </aside>
+
+    <main class="flex-1 flex flex-col overflow-y-auto w-full">
+        <header class="bg-white border-b border-gray-200 px-4 py-3 lg:px-8 lg:py-4 flex justify-between items-center sticky top-0 z-30">
+            <div class="flex items-center gap-3">
+                <button id="menuToggle" class="lg:hidden p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-lg"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg></button>
+                <h2 class="text-lg lg:text-xl font-bold text-gray-800">ตรวจสอบการชำระเงิน</h2>
+            </div>
+            <div class="flex items-center gap-3 bg-gray-50 px-4 py-2 rounded-full border border-gray-200">
+                <span class="text-sm text-gray-500 hidden md:inline">ผู้ใช้งาน:</span>
+                <span id="userNameDisplay" class="text-sm font-semibold text-blue-700">admin</span>
+            </div>
+        </header>
+
+        <div class="p-4 lg:p-8">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-3">
+                <div>
+                    <h3 class="text-lg font-bold text-gray-800">จัดการการชำระเงิน</h3>
+                    <p id="paymentSubtitle" class="text-sm text-gray-500">แสดงรายการชำระเงินในอาคารปัจจุบัน</p>
+                </div>
+                <div class="flex flex-wrap gap-2 w-full md:w-auto">
+                    <div class="flex items-center gap-2 bg-white border border-blue-300 rounded-lg px-3 py-2 shadow-sm flex-1 md:flex-none min-w-[180px]">
+                        <span class="text-sm">🏢</span>
+                        <select id="buildingSelector" class="bg-transparent text-sm font-semibold text-blue-700 outline-none cursor-pointer flex-1"><option value="">กำลังโหลด...</option></select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
+                <div class="flex flex-col md:flex-row gap-3">
+                    <select id="statusFilter" class="px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-blue-500">
+                        <option value="">ทุกสถานะ</option>
+                        <option value="paid">🟢 ชำระแล้ว</option>
+                        <option value="unpaid">🔴 ยังไม่ชำระ</option>
+                        <option value="overdue">🟡 เลยกำหนด</option>
+                    </select>
+                    <input type="text" id="searchPayment" placeholder="🔍 ค้นหาชื่อผู้เช่า, เลขห้อง, เลขที่บิล..." class="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-blue-500">
+                    <div class="text-sm text-gray-500 flex items-center">พบ <span id="paymentCount" class="font-bold text-blue-600 mx-1">0</span> รายการ</div>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left min-w-[1100px]">
+                        <thead class="text-xs text-gray-500 uppercase bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-3 font-semibold">เลขที่บิล</th>
+                                <th class="px-4 py-3 font-semibold">ห้อง</th>
+                                <th class="px-4 py-3 font-semibold">ผู้เช่า</th>
+                                <th class="px-4 py-3 font-semibold">เดือน</th>
+                                <th class="px-4 py-3 font-semibold">ยอดเรียกเก็บ</th>
+                                <th class="px-4 py-3 font-semibold">วันที่ชำระ</th>
+                                <th class="px-4 py-3 font-semibold">สถานะ</th>
+                                <th class="px-4 py-3 font-semibold text-right">จัดการ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="paymentTableBody" class="divide-y divide-gray-100">
+                            <tr><td colspan="8" class="px-4 py-8 text-center text-gray-400">กำลังโหลดข้อมูล...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal: Record Payment -->
+    <div id="paymentModal" class="fixed inset-0 bg-black/50 z-[60] hidden items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg modal-animate max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between p-5 border-b border-gray-200 sticky top-0 bg-white z-20">
+                <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2"><span>💰</span> <span id="paymentModalTitle">บันทึกการชำระเงิน</span></h3>
+                <button type="button" onclick="closePaymentModal()" class="p-2 text-gray-400 hover:bg-gray-100 rounded-lg">✕</button>
+            </div>
+
+            <form id="paymentForm" class="p-5 space-y-4">
+                <input type="hidden" id="paymentInvoiceId">
+                
+                <div class="bg-blue-50 rounded-lg p-4">
+                    <div class="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                            <p class="text-xs text-gray-500">ห้อง</p>
+                            <p class="font-bold text-blue-700 text-lg" id="infoRoom">-</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-500">ผู้เช่า</p>
+                            <p class="font-medium text-gray-800" id="infoTenant">-</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-500">เดือน</p>
+                            <p class="font-medium text-gray-800" id="infoBillingMonth">-</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-500">ยอดเรียกเก็บ</p>
+                            <p class="font-bold text-red-600 text-lg" id="infoTotal">-</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">จำนวนที่ชำระ (฿) <span class="text-red-500">*</span></label>
+                    <input type="number" id="paidAmount" required min="0" step="0.01"
+                           class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-base font-bold text-green-700">
+                    <p class="text-xs text-gray-500 mt-1">💡 ถ้าใส่ยอดเต็ม → ระบบจะ mark ชำระแล้วทันที</p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">วันที่ชำระ <span class="text-red-500">*</span></label>
+                        <input type="date" id="paidDate" required class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-base">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">วิธีชำระ</label>
+                        <select id="paymentMethod" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-base">
+                            <option value="transfer">🏦 โอนเงิน</option>
+                            <option value="cash">💵 เงินสด</option>
+                            <option value="promptpay">📱 พร้อมเพย์</option>
+                            <option value="other">📌 อื่นๆ</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- ⭐ อัปโหลดสลิป -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">📷 รูปสลิป</label>
+                    
+                    <input type="file" id="slipFile" accept="image/*" class="hidden">
+                    
+                    <div id="slipUploadArea" class="border-2 border-dashed border-blue-300 rounded-lg p-6 text-center bg-blue-50/30 cursor-pointer hover:bg-blue-50 transition">
+                        <div id="slipPlaceholder">
+                            <div class="text-4xl mb-2">📸</div>
+                            <p class="text-sm font-medium text-blue-600 mb-1">แตะเพื่อถ่ายรูป หรือเลือกรูปสลิป</p>
+                            <p class="text-xs text-gray-500">รองรับ JPG, PNG (ไม่เกิน 5 MB)</p>
+                        </div>
+                        <div id="slipPreviewWrap" class="hidden">
+                            <img id="slipPreview" class="max-h-48 mx-auto rounded-lg border border-gray-200 shadow-sm" src="" alt="Slip preview">
+                            <p class="text-xs text-gray-500 mt-2">👆 แตะเพื่อเปลี่ยนรูป</p>
+                        </div>
+                    </div>
+                    
+                    <div id="slipUploadStatus" class="hidden mt-2 text-xs"></div>
+                    
+                    <input type="hidden" id="slipUrl" value="">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">หมายเหตุ</label>
+                    <textarea id="paymentNote" rows="2" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm resize-none" placeholder="บันทึกเพิ่มเติม..."></textarea>
+                </div>
+                
+                <div class="flex gap-2 pt-2">
+                    <button type="button" onclick="closePaymentModal()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2.5 rounded-lg transition">ยกเลิก</button>
+                    <button type="submit" id="savePaymentBtn" class="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2.5 rounded-lg transition flex items-center justify-center gap-2"><span id="savePaymentBtnText">✅ ยืนยันการชำระ</span></button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: View Payment Detail -->
+    <div id="viewPaymentModal" class="fixed inset-0 bg-black/50 z-[60] hidden items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl modal-animate max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between p-5 border-b border-gray-200 sticky top-0 bg-gradient-to-r from-green-50 to-green-100 z-10">
+                <div class="flex items-center gap-3">
+                    <div class="w-14 h-14 bg-green-500 text-white rounded-full flex items-center justify-center text-2xl font-bold shadow-md">✅</div>
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-800" id="viewPaymentNo">การชำระเงิน #</h3>
+                        <p class="text-xs text-gray-500" id="viewPaymentId">#</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeViewPaymentModal()" class="p-2 text-gray-400 hover:bg-white/50 rounded-lg transition">✕</button>
+            </div>
+
+            <div class="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                <span class="text-sm text-gray-500">สถานะ:</span>
+                <div id="viewStatusBadge"></div>
+            </div>
+
+            <div class="p-5 space-y-5">
+                <div>
+                    <h4 class="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2"><span class="text-lg">👤</span> ผู้เช่า & ห้อง</h4>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 bg-blue-50/50 rounded-lg p-4">
+                        <div><p class="text-xs text-gray-500 mb-1">ผู้เช่า</p><p class="text-sm font-medium text-gray-800" id="viewTenantName">-</p></div>
+                        <div><p class="text-xs text-gray-500 mb-1">เบอร์โทร</p><p class="text-sm font-medium text-gray-800" id="viewTenantPhone">-</p></div>
+                        <div><p class="text-xs text-gray-500 mb-1">ห้อง</p><p class="text-sm font-medium text-blue-600" id="viewRoom">-</p></div>
+                        <div><p class="text-xs text-gray-500 mb-1">เดือน</p><p class="text-sm font-medium text-gray-800" id="viewBillingMonth">-</p></div>
+                    </div>
+                </div>
+
+                <div>
+                    <h4 class="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2"><span class="text-lg">💰</span> ยอดเงิน</h4>
+                    <div class="bg-yellow-50/50 rounded-lg p-4 space-y-2 text-sm">
+                        <div class="flex justify-between"><span>ยอดเรียกเก็บ:</span><span id="viewTotalAmount">-</span></div>
+                        <div class="flex justify-between text-green-700 font-bold"><span>จำนวนที่ชำระ:</span><span id="viewPaidAmount">-</span></div>
+                    </div>
+                </div>
+
+                <div>
+                    <h4 class="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2"><span class="text-lg">📅</span> รายละเอียดการชำระ</h4>
+                    <div class="grid grid-cols-3 gap-3 bg-gray-50 rounded-lg p-4">
+                        <div><p class="text-xs text-gray-500 mb-1">วันที่ชำระ</p><p class="text-sm font-medium text-gray-800" id="viewPaidDate">-</p></div>
+                        <div><p class="text-xs text-gray-500 mb-1">วิธีชำระ</p><p class="text-sm font-medium text-gray-800" id="viewMethod">-</p></div>
+                        <div><p class="text-xs text-gray-500 mb-1">เลขใบเสร็จ</p><p class="text-sm font-medium text-gray-800" id="viewReceiptNo">-</p></div>
+                    </div>
+                    <div id="viewNoteWrap" class="mt-3 hidden">
+                        <p class="text-xs text-gray-500 mb-1">📝 หมายเหตุ:</p>
+                        <p class="text-sm text-gray-700 bg-gray-50 rounded p-3" id="viewNote">-</p>
+                    </div>
+                </div>
+
+                <div id="viewSlipWrap" class="hidden">
+                    <h4 class="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2"><span class="text-lg">📄</span> สลิปโอนเงิน</h4>
+                    <div class="bg-gray-50 rounded-lg p-4 text-center">
+                        <img id="viewSlipImage" class="max-h-96 mx-auto rounded-lg border border-gray-200" src="" alt="Slip">
+                        <a id="viewSlipLink" href="" target="_blank" class="block mt-2 text-xs text-blue-600 hover:underline">🔗 เปิดในแท็บใหม่</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-5 border-t border-gray-200 flex gap-2 sticky bottom-0 bg-white">
+                <button type="button" onclick="closeViewPaymentModal()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2.5 rounded-lg transition">ปิด</button>
+                <button type="button" id="viewDeleteBtn" class="flex-1 bg-red-600 hover:bg-red-700 text-white font-medium py-2.5 rounded-lg transition flex items-center justify-center gap-2">🗑️ ลบการชำระ</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ⭐ Supabase Config สำหรับ Upload — แก้ไข Key ให้สมบูรณ์แล้ว -->
+    <script>
+        window.SUPABASE_CONFIG = {
+            url: 'https://ivitfqdvddwagkogygab.supabase.co',
+            // ✅ ใช้ Legacy anon key (JWT) ที่สมบูรณ์
+            anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml2aXRmcWR2ZGR3YWdrb2d5Z2FiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA1MDM4OTAsImV4cCI6MjEwNjA3OTg5MH0.99w5nEpkxrNVLNwb4Pc6vLOAM4TNGrWKKLjcuTL0kyA'
+        };
+    </script>
+    <script src="app.js"></script>
+    <script src="payments.js"></script>
+</body>
+</html>

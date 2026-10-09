@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>รายการจองห้อง | ระบบจัดการหอพัก</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Sarabun', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        .modal-animate { animation: fadeIn 0.2s ease-out; }
+    </style>
+</head>
+<body class="bg-gray-50 flex h-screen overflow-hidden relative">
+
+    <div id="sidebarOverlay" class="fixed inset-0 bg-black/50 z-40 hidden lg:hidden"></div>
+
+    <!-- SIDEBAR -->
+    <aside id="sidebar" class="fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 flex flex-col shadow-2xl lg:shadow-sm transform -translate-x-full transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static shrink-0">
+        <div class="p-5 border-b border-gray-200 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <span class="text-3xl">🏢</span>
+                <h1 class="text-xl font-bold text-blue-800">ศิรินทร์ พลัส</h1>
+            </div>
+            <button id="closeSidebar" class="lg:hidden p-2 text-gray-500 hover:bg-gray-100 rounded-lg">✕</button>
+        </div>
+        
+        <nav class="flex-1 p-4 space-y-1 overflow-y-auto no-scrollbar">
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-2">ระบบสรุปผล</div>
+            <a href="dashboard.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition">
+                <span>📊</span> แดชบอร์ดภาพรวม
+            </a>
+            <a href="reports.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition">
+    <span>📈</span> รายงาน & Export
+</a>
+            
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-6">การจัดการหลัก</div>
+            <a href="rooms.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition">
+                <span>🚪</span> ข้อมูลห้องพัก
+            </a>
+            <a href="bookings.html" class="flex items-center justify-between px-4 py-3.5 bg-blue-50 text-blue-600 rounded-lg font-medium transition">
+                <div class="flex items-center gap-3"><span>📅</span> รายการจองห้อง</div>
+                <span id="badgeBookings" class="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full hidden">0</span>
+            </a>
+            <a href="tenants.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition">
+                <span>👥</span> ข้อมูลผู้เช่า
+            </a>
+            <a href="contracts.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition">
+                <span>📄</span> ทะเบียนสัญญาเช่า
+            </a>
+            
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-6">ระบบการเงิน</div>
+            <a href="invoices.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition">
+                <span>➕</span> ออกใบแจ้งหนี้
+            </a>
+            <a href="payments.html" class="flex items-center justify-between px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition">
+                <div class="flex items-center gap-3"><span>💲</span> ตรวจสอบการชำระเงิน</div>
+                <span id="badgePayments" class="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full hidden">0</span>
+            </a>
+
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-6">บริการและคำร้อง</div>
+            <a href="transfer.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition">
+                <span>🔄</span> แจ้งย้ายห้อง
+            </a>
+            <a href="moveout.html" class="flex items-center gap-3 px-4 py-3.5 text-gray-600 hover:bg-gray-50 rounded-lg transition">
+                <span>📤</span> แจ้งย้ายออก
+            </a>
+        </nav>
+
+        <div class="p-4 border-t border-gray-200">
+            <button onclick="logout()" class="w-full flex items-center justify-center gap-2 px-4 py-3 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition font-medium">
+                <span>🚪</span> ออกจากระบบ
+            </button>
+        </div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="flex-1 flex flex-col overflow-y-auto w-full">
+        <header class="bg-white border-b border-gray-200 px-4 py-3 lg:px-8 lg:py-4 flex justify-between items-center sticky top-0 z-30">
+            <div class="flex items-center gap-3">
+                <button id="menuToggle" class="lg:hidden p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-lg">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                    </svg>
+                </button>
+                <h2 class="text-lg lg:text-xl font-bold text-gray-800">รายการจองห้อง</h2>
+            </div>
+
+            <div class="flex items-center gap-3 bg-gray-50 px-4 py-2 rounded-full border border-gray-200">
+                <span class="text-sm text-gray-500 hidden md:inline">ผู้ใช้งาน:</span>
+                <span id="userNameDisplay" class="text-sm font-semibold text-blue-700">admin</span>
+            </div>
+        </header>
+
+        <div class="p-4 lg:p-8">
+            <!-- Title + Building Selector + Add Button -->
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-3">
+                <div>
+                    <h3 class="text-lg font-bold text-gray-800">จัดการรายการจอง</h3>
+                    <p id="bookingSubtitle" class="text-sm text-gray-500">ตรวจสอบสลิปมัดจำ อนุมัติการจอง และสร้างสัญญาเช่า</p>
+                </div>
+                
+                <div class="flex flex-wrap gap-2 w-full md:w-auto">
+                    <div class="flex items-center gap-2 bg-white border border-blue-300 rounded-lg px-3 py-2 shadow-sm flex-1 md:flex-none min-w-[180px]">
+                        <span class="text-sm">🏢</span>
+                        <select id="buildingSelector" class="bg-transparent text-sm font-semibold text-blue-700 outline-none cursor-pointer flex-1">
+                            <option value="">กำลังโหลด...</option>
+                        </select>
+                    </div>
+                    
+                    <button type="button" onclick="openAddBookingModal()" 
+                            class="flex-1 md:flex-none bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow-sm flex items-center justify-center gap-2">
+                        <span>➕</span> เพิ่มการจอง
+                    </button>
+                </div>
+            </div>
+
+            <!-- Filters -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
+                <div class="flex flex-col md:flex-row gap-3">
+                    <select id="statusFilter" class="px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-blue-500">
+    <option value="">ทุกสถานะ</option>
+    <option value="PENDING">🟡 รอตรวจสอบสลิป</option>
+    <option value="APPROVED">🔵 อนุมัติแล้ว (รอทำสัญญา)</option>
+    <option value="COMPLETED">🟢 ทำสัญญาแล้ว</option>
+    <option value="CANCELLED">🔴 ยกเลิก</option>
+    <option value="EXPIRED">⚫ หมดอายุ (ไม่มาทำสัญญา)</option>
+</select>
+                    <input type="text" id="searchBooking" placeholder="🔍 ค้นหาชื่อผู้จอง หรือเลขห้อง..." 
+                           class="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-blue-500">
+                    <div class="text-sm text-gray-500 flex items-center">
+                        พบ <span id="bookingCount" class="font-bold text-blue-600 mx-1">0</span> รายการ
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Table -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left min-w-[900px]">
+                        <thead class="text-xs text-gray-500 uppercase bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-3 font-semibold">วันที่จอง</th>
+                                <th class="px-4 py-3 font-semibold">ห้อง</th>
+                                <th class="px-4 py-3 font-semibold">ผู้จอง</th>
+                                <th class="px-4 py-3 font-semibold">เงินจอง</th>
+                                <th class="px-4 py-3 font-semibold">กำหนดทำสัญญา</th>
+                                <th class="px-4 py-3 font-semibold">สถานะ</th>
+                                <th class="px-4 py-3 font-semibold text-right">จัดการ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bookingTableBody" class="divide-y divide-gray-100">
+                            <tr><td colspan="7" class="px-4 py-8 text-center text-gray-400">กำลังโหลดข้อมูล...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal: Add/Edit Booking -->
+    <div id="bookingModal" class="fixed inset-0 bg-black/50 z-[60] hidden items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md modal-animate max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between p-5 border-b border-gray-200 sticky top-0 bg-white">
+                <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <span>📅</span> <span id="bookingModalTitle">เพิ่มการจองใหม่</span>
+                </h3>
+                <button type="button" onclick="closeBookingModal()" class="p-2 text-gray-400 hover:bg-gray-100 rounded-lg">✕</button>
+            </div>
+
+            <form id="bookingForm" class="p-5 space-y-4">
+                <input type="hidden" id="bookingId">
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">ชื่อผู้จอง <span class="text-red-500">*</span></label>
+                    <input type="text" id="tenantName" required autocomplete="off"
+                           class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-base"
+                           placeholder="เช่น นายสมชาย ใจดี">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">เบอร์โทร</label>
+                    <input type="tel" id="tenantPhone" autocomplete="off"
+                           class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-base"
+                           placeholder="0812345678">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">ห้องที่จอง <span class="text-red-500">*</span></label>
+                    <select id="roomId" required
+                            class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-base">
+                        <option value="">-- เลือกห้อง --</option>
+                    </select>
+                    <p class="text-xs text-gray-500 mt-1">แสดงเฉพาะห้องว่างในอาคารที่เลือก</p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">เงินจอง (฿) <span class="text-red-500">*</span></label>
+                        <input type="number" id="bookingAmount" required autocomplete="off" min="0" step="100" value="1000"
+                               class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-base">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">วันที่จอง <span class="text-red-500">*</span></label>
+                        <input type="date" id="bookingDate" required
+                               class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-base">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">กำหนดทำสัญญา <span class="text-red-500">*</span></label>
+                    <input type="date" id="contractDeadline" required
+                           class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-base">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">สถานะ</label>
+                    <select id="bookingStatus"
+        class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-base">
+    <option value="PENDING">🟡 รอตรวจสอบสลิป</option>
+    <option value="APPROVED">🔵 อนุมัติแล้ว</option>
+    <option value="COMPLETED">🟢 ทำสัญญาแล้ว</option>
+    <option value="CANCELLED">🔴 ยกเลิก</option>
+    <option value="EXPIRED">⚫ หมดอายุ (ไม่มาทำสัญญา)</option>
+</select>
+                </div>
+
+                <div id="cancellationField" class="hidden">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">เหตุผลการยกเลิก <span class="text-red-500">*</span></label>
+                    <textarea id="cancellationReason" rows="3"
+                              class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-base resize-none"
+                              placeholder="เช่น เกินกำหนดเวลาทำสัญญา, ผู้จองขอยกเลิก"></textarea>
+                </div>
+                
+                <div class="flex gap-2 pt-2">
+                    <button type="button" onclick="closeBookingModal()" 
+                            class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2.5 rounded-lg transition">
+                        ยกเลิก
+                    </button>
+                    <button type="submit" id="saveBookingBtn"
+                            class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition flex items-center justify-center gap-2">
+                        <span id="saveBookingBtnText">บันทึก</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: View Reason (Cancel/Expire) -->
+    <div id="reasonModal" class="fixed inset-0 bg-black/50 z-[60] hidden items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md modal-animate">
+            <div id="reasonModalHeader" class="flex items-center justify-between p-5 border-b border-gray-200 bg-red-50">
+                <h3 id="reasonModalTitle" class="text-lg font-bold text-red-700 flex items-center gap-2">
+                    <span>⚠️</span> รายละเอียดการยกเลิก
+                </h3>
+                <button type="button" onclick="closeReasonModal()" class="p-2 text-red-400 hover:bg-red-100 rounded-lg">✕</button>
+            </div>
+            <div class="p-5 space-y-3">
+                <div class="flex justify-between py-2 border-b border-dashed border-gray-200">
+                    <span class="text-sm text-gray-500">ห้องที่จอง:</span>
+                    <span id="modalRoom" class="text-sm font-bold text-blue-600"></span>
+                </div>
+                <div class="flex justify-between py-2 border-b border-dashed border-gray-200">
+                    <span class="text-sm text-gray-500">ชื่อผู้จอง:</span>
+                    <span id="modalName" class="text-sm font-semibold text-gray-800"></span>
+                </div>
+                <div class="flex justify-between py-2 border-b border-dashed border-gray-200">
+                    <span class="text-sm text-gray-500">สถานะมัดจำ:</span>
+                    <span id="modalDepositStatus" class="text-sm font-semibold text-red-600">ริบเงินมัดจำเข้าส่วนกลาง</span>
+                </div>
+                <div class="pt-2">
+                    <span id="modalReasonLabel" class="text-sm text-gray-500 block mb-2">เหตุผลที่ยกเลิก:</span>
+                    <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                        <p id="modalReason" class="text-sm text-gray-700"></p>
+                    </div>
+                </div>
+            </div>
+            <div class="p-5 border-t border-gray-200 flex justify-end">
+                <button type="button" onclick="closeReasonModal()" 
+                        class="px-5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition">
+                    ปิดหน้าต่าง
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Confirm Delete -->
+    <div id="deleteBookingModal" class="fixed inset-0 bg-black/50 z-[60] hidden items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm modal-animate">
+            <div class="p-5 text-center">
+                <div class="text-5xl mb-3">⚠️</div>
+                <h3 class="text-lg font-bold text-gray-800 mb-2">ยืนยันการลบ</h3>
+                <p class="text-sm text-gray-600 mb-1">คุณต้องการซ่อนการจองของ <span id="deleteBookingName" class="font-bold text-red-600"></span> ใช่หรือไม่?</p>
+                <p class="text-xs text-gray-400">ข้อมูลจะถูกซ่อนแต่ยังเก็บไว้ในระบบ</p>
+            </div>
+            
+            <div class="flex gap-2 p-5 border-t border-gray-200">
+                <button type="button" onclick="closeDeleteBookingModal()" 
+                        class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2.5 rounded-lg transition">
+                    ยกเลิก
+                </button>
+                <button type="button" id="confirmDeleteBookingBtn"
+                        class="flex-1 bg-red-600 hover:bg-red-700 text-white font-medium py-2.5 rounded-lg transition">
+                    ซ่อนการจอง
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script src="bookings.js"></script>
+</body>
+</html>
