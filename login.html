@@ -88,8 +88,7 @@
             btn.classList.add('opacity-75', 'cursor-not-allowed');
 
             try {
-                // URL ของ Webhook n8n (เช็คให้ตรงกับ Test หรือ Production)
-                const N8N_WEBHOOK_URL = 'http://localhost:5678/webhook/login'; 
+                const N8N_WEBHOOK_URL = 'http://n8n_mirot.minmark.xyz/webhook/login'; 
 
                 const response = await fetch(N8N_WEBHOOK_URL, {
                     method: 'POST',
