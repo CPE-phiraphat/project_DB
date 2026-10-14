@@ -1,12 +1,7 @@
 /* ==========================================
- * meters.js - จดมิเตอร์น้ำ-ไฟ (v4.1)
- * ⭐ v4.1:
- *   - Fix: ห้องว่างบันทึกได้ (ใช้ data-room เป็น key)
- *   - กรอกทุกห้อง (รวมเหมาจ่าย) — จดเป็นประวัติ
- *   - Badge "เหมาจ่าย" + label "(สัญญาเหมาจ่าย)"
- *   - Filter / Search / Progress bar
- *   - Rate section (ราคาไฟ/น้ำต่อหน่วย)
- *   - Draft autosave (localStorage)
+ * meters.js - จดมิเตอร์น้ำ-ไฟ (v4.2)
+ * ⭐ v4.2: ลบข้อความ "(สัญญาเหมาจ่าย)" ออกจาก label
+ * ⭐ v4.1: Fix ห้องว่าง + ใช้ data-room เป็น key
  * ========================================== */
 (function() {
     'use strict';
@@ -82,7 +77,7 @@
     }
 
     // ==========================================
-    // Draft (localStorage) — ใช้ room_id เป็น key
+    // Draft (localStorage)
     // ==========================================
     function draftKey() {
         return `meter_draft_${getCurrentBuildingId()}_${getReadingMonth()}`;
@@ -234,7 +229,6 @@
                 else rooms = [];
             }
 
-            // 🛡 Defensive filter
             const rawCount = rooms.length;
             const currentBid = Number(buildingId);
             meterData = rooms.filter(r => {
@@ -250,7 +244,6 @@
 
             console.log(`📦 โหลดมิเตอร์ ${meterData.length} ห้อง (อาคาร ${buildingId}, ${readingMonth})`);
 
-            // ดึง rate จาก response
             const firstRoom = meterData[0] || {};
             const elecRateFromAPI = _pickNum(data, ['elec_rate', 'elec_unit_price'], null)
                                  ?? _pickNum(firstRoom, ['elec_rate', 'elec_unit_price'], 0);
@@ -303,7 +296,6 @@
         const currElec = currElecInp ? (parseFloat(currElecInp.value) || 0) : (parseFloat(item.curr_elec) || 0);
         const currWater = currWaterInp ? (parseFloat(currWaterInp.value) || 0) : (parseFloat(item.curr_water) || 0);
 
-        // ⭐ ต้องกรอกทุกห้อง
         const elecOK = currElec > prevElec;
         const waterOK = currWater > prevWater;
         return elecOK && waterOK;
@@ -457,7 +449,6 @@
                     <div>
                         <div class="flex items-center gap-2 mb-2">
                             <label class="block text-xs font-medium text-gray-600">⚡ ไฟฟ้า</label>
-                            ${isFlatElec ? `<span class="text-xs text-yellow-700">(สัญญาเหมาจ่าย — จดไว้เป็นประวัติ)</span>` : ''}
                         </div>
                         <div class="grid grid-cols-3 gap-2 items-end">
                             <div>
@@ -487,7 +478,6 @@
                     <div>
                         <div class="flex items-center gap-2 mb-2">
                             <label class="block text-xs font-medium text-gray-600">💧 น้ำ</label>
-                            ${isFlatWater ? `<span class="text-xs text-blue-700">(สัญญาเหมาจ่าย — จดไว้เป็นประวัติ)</span>` : ''}
                         </div>
                         <div class="grid grid-cols-3 gap-2 items-end">
                             <div>
@@ -694,7 +684,7 @@
     // 7. Init
     // ==========================================
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('🚀 meters.js v4.1 เริ่มทำงาน');
+        console.log('🚀 meters.js v4.2 เริ่มทำงาน');
 
         const now = new Date();
         state.year = now.getFullYear();
@@ -725,7 +715,7 @@
 
         setTimeout(() => loadMeterReadings(), 500);
 
-        console.log('✅ meters.js v4.1 โหลดสำเร็จ');
+        console.log('✅ meters.js v4.2 โหลดสำเร็จ');
     });
 
 })();
