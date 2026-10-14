@@ -1,10 +1,10 @@
 /* ==========================================
- * move-out.js - แจ้งย้ายออก (v6.1)
- * ⭐ v6.1:
- *   - Modal ยืนยันก่อนอนุมัติ
- *   - เช็คบิลค้างของสัญญาเดิม
- *   - แสดงวันครบสัญญาเดิม + เงินประกัน
- *   - ⭐ Auto-fill rate จาก meters-preview (ไม่ต้องกรอกเอง)
+ * move-out.js - แจ้งย้ายออก (v6.2)
+ * ⭐ v6.2:
+ *   - ดึงมิเตอร์ตามเดือนที่ย้ายออก (ไม่ใช่ initial ของสัญญา)
+ *   - Fix View Modal error
+ *   - Auto-fill rate จาก meters-preview
+ *   - Modal Approve + เช็คบิลค้าง
  * ========================================== */
 (function() {
     'use strict';
@@ -104,7 +104,7 @@
     }
 
     // ==========================================
-    // ⭐ ดึง rate ของเดือนนี้จาก meters-preview
+    // ⭐ ดึง rate ของเดือนปัจจุบัน
     // ==========================================
     async function fetchCurrentRates(buildingId) {
         try {
@@ -122,6 +122,32 @@
         } catch (e) {
             console.warn('⚠️ โหลด rate ไม่สำเร็จ:', e);
             return { elec: 0, water: 0 };
+        }
+    }
+
+    // ==========================================
+    // ⭐ ดึงมิเตอร์ตามเดือน (จาก room_id)
+    // ==========================================
+    async function fetchMeterForMonth(roomId, monthStr) {
+        try {
+            const buildingId = getCurrentBuildingId();
+            const url = `${API_BASE}/meters-preview?building_id=${buildingId}&reading_month=${monthStr}&_t=${Date.now()}`;
+            const res = await fetch(url, { cache: 'no-store' });
+            const data = await res.json();
+            const arr = toArray(data);
+            const target = arr.find(m => Number(m.room_id) === Number(roomId));
+            if (!target) return null;
+            console.log('📊 Meter ที่ดึงมา:', monthStr, target.room_number, {
+                prev_elec: target.prev_elec,
+                curr_elec: target.curr_elec,
+                prev_water: target.prev_water,
+                curr_water: target.curr_water,
+                has_reading: target.has_reading
+            });
+            return target;
+        } catch (e) {
+            console.warn('⚠️ โหลดมิเตอร์ไม่สำเร็จ:', e);
+            return null;
         }
     }
 
@@ -343,7 +369,6 @@
         modal.classList.remove('hidden');
         modal.classList.add('flex');
 
-        // ⭐ โหลด rates + ข้อมูล dropdown พร้อมกัน
         await Promise.all([
             loadMoveOuts(),
             loadMoveOutData(),
@@ -378,12 +403,15 @@
             const finalLabelEl = document.getElementById(kind === 'elec' ? 'finalElecLabel' : 'finalWaterLabel');
 
             if (initialEl) initialEl.value = 0;
-            if (finalEl) finalEl.value = 0;
+            if (finalEl) {
+                finalEl.value = 0;
+                finalEl.placeholder = '';
+            }
             if (priceEl) {
                 priceEl.value = '';
                 priceEl.disabled = false;
                 priceEl.readOnly = false;
-                priceEl.classList.remove('bg-yellow-100', 'border-yellow-400', 'font-bold', 'text-yellow-800');
+                priceEl.classList.remove('bg-yellow-100', 'border-yellow-400', 'font-bold', 'text-yellow-800', 'bg-gray-100', 'text-gray-700');
             }
             if (badgeEl) {
                 badgeEl.innerText = '';
@@ -406,7 +434,6 @@
         const isFlat = type === 'FLAT_RATE' && flatRate > 0;
 
         if (isFlat) {
-            // เหมาจ่าย → disable + ใช้ค่าเหมา
             initialEl.disabled = true;
             finalEl.disabled = true;
             initialEl.classList.add('bg-gray-200', 'text-gray-400');
@@ -415,6 +442,7 @@
             priceEl.disabled = true;
             priceEl.readOnly = true;
             priceEl.classList.add('bg-yellow-100', 'border-yellow-400', 'font-bold', 'text-yellow-800');
+            priceEl.classList.remove('bg-gray-100', 'text-gray-700');
             priceLabelEl.innerHTML = `💰 ราคาเหมาจ่าย (฿)<span class="ml-1 text-yellow-700 text-xs">(จากสัญญา)</span>`;
             finalLabelEl.innerText = 'มิเตอร์ครั้งสุดท้าย';
             badgeEl.innerText = '💼 เหมาจ่าย';
@@ -422,7 +450,6 @@
             initialEl.value = 0;
             finalEl.value = 0;
         } else {
-            // ⭐ ต่อหน่วย → auto-fill rate + readonly
             initialEl.disabled = false;
             finalEl.disabled = false;
             initialEl.classList.remove('bg-gray-200', 'text-gray-400');
@@ -431,7 +458,6 @@
             const defaultRate = kind === 'elec' ? currentRates.elec : currentRates.water;
             priceEl.value = defaultRate > 0 ? defaultRate : '';
 
-            // ⭐ Lock ไว้ — ห้ามแก้ (rate มาจากเมนูจดมิเตอร์)
             priceEl.disabled = false;
             priceEl.readOnly = true;
             priceEl.classList.remove('bg-yellow-100', 'border-yellow-400', 'font-bold', 'text-yellow-800');
@@ -450,7 +476,7 @@
     // ==========================================
     // 6. เลือกผู้เช่า
     // ==========================================
-    function onTenantChange(e) {
+    async function onTenantChange(e) {
         const opt = e.target.selectedOptions[0];
         const infoBox = document.getElementById('currentInfo');
 
@@ -484,15 +510,69 @@
         document.getElementById('infoRent').innerText = formatNumber(selectedTenant.rent_price) + ' ฿';
         document.getElementById('infoDeposit').innerText = formatNumber(selectedTenant.deposit) + ' ฿';
 
-        document.getElementById('initialElec').value = selectedTenant.initial_elec;
-        document.getElementById('initialWater').value = selectedTenant.initial_water;
-        document.getElementById('finalElec').value = selectedTenant.initial_elec;
-        document.getElementById('finalWater').value = selectedTenant.initial_water;
-
         applyChargeTypeUI('elec', selectedTenant.elec_type, selectedTenant.elec_flat);
         applyChargeTypeUI('water', selectedTenant.water_type, selectedTenant.water_flat);
 
         infoBox.classList.remove('hidden');
+
+        // ⭐ โหลดมิเตอร์ตามเดือนที่ย้ายออก
+        await loadMeterByMonth();
+    }
+
+    // ==========================================
+    // ⭐ 6.5 โหลดมิเตอร์ตามเดือนที่ย้ายออก
+    // ==========================================
+    async function loadMeterByMonth() {
+        if (!selectedTenant || !selectedTenant.room_id) return;
+
+        const moveOutDate = document.getElementById('moveOutDate').value;
+        if (!moveOutDate) return;
+
+        const monthStr = moveOutDate.substring(0, 7);
+        const meter = await fetchMeterForMonth(selectedTenant.room_id, monthStr);
+
+        const initElecEl = document.getElementById('initialElec');
+        const initWaterEl = document.getElementById('initialWater');
+        const finalElecEl = document.getElementById('finalElec');
+        const finalWaterEl = document.getElementById('finalWater');
+
+        const isFlatElec = selectedTenant.elec_type === 'FLAT_RATE' && selectedTenant.elec_flat > 0;
+        const isFlatWater = selectedTenant.water_type === 'FLAT_RATE' && selectedTenant.water_flat > 0;
+
+        if (meter) {
+            if (!isFlatElec) {
+                initElecEl.value = parseFloat(meter.prev_elec) || 0;
+                if (meter.has_reading) {
+                    finalElecEl.value = parseFloat(meter.curr_elec) || 0;
+                    finalElecEl.placeholder = '';
+                } else {
+                    finalElecEl.value = '';
+                    finalElecEl.placeholder = 'กรอกครั้งสุดท้าย';
+                }
+            }
+            if (!isFlatWater) {
+                initWaterEl.value = parseFloat(meter.prev_water) || 0;
+                if (meter.has_reading) {
+                    finalWaterEl.value = parseFloat(meter.curr_water) || 0;
+                    finalWaterEl.placeholder = '';
+                } else {
+                    finalWaterEl.value = '';
+                    finalWaterEl.placeholder = 'กรอกครั้งสุดท้าย';
+                }
+            }
+        } else {
+            if (!isFlatElec) {
+                initElecEl.value = selectedTenant.initial_elec || 0;
+                finalElecEl.value = '';
+                finalElecEl.placeholder = 'กรอกครั้งสุดท้าย';
+            }
+            if (!isFlatWater) {
+                initWaterEl.value = selectedTenant.initial_water || 0;
+                finalWaterEl.value = '';
+                finalWaterEl.placeholder = 'กรอกครั้งสุดท้าย';
+            }
+        }
+
         recalcSummary();
     }
 
@@ -600,7 +680,7 @@
     }
 
     // ==========================================
-    // 8. บันทึก (สร้างคำร้อง PENDING)
+    // 8. บันทึก
     // ==========================================
     async function saveMoveOut(e) {
         e.preventDefault();
@@ -689,7 +769,7 @@
     }
 
     // ==========================================
-    // ⭐ 9. Approve — Modal + เช็คบิล
+    // 9. Approve
     // ==========================================
     async function openApproveModal(requestId) {
         const m = allMoveOuts.find(x => Number(x.id) === Number(requestId));
@@ -888,7 +968,11 @@
 
         document.getElementById('viewMoveOutNo').innerText = m.move_out_no || '-';
         document.getElementById('viewMoveOutDate').innerText = `ย้ายออก: ${formatDateLong(m.move_out_date)}`;
-        document.getElementById('viewStatusBadge').innerHTML = getStatusBadge(m.status);
+        
+        // ⭐ safe set status badge
+        const statusEl = document.getElementById('viewStatusBadge');
+        if (statusEl) statusEl.innerHTML = getStatusBadge(m.status);
+        
         document.getElementById('viewTenantName').innerText = m.tenant_name || '-';
         document.getElementById('viewTenantPhone').innerText = m.tenant_phone || '-';
         document.getElementById('viewRoom').innerText = m.room_number || '-';
@@ -979,7 +1063,7 @@
     // 13. Init
     // ==========================================
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('🚀 move-out.js v6.1 เริ่มทำงาน (auto-rate)');
+        console.log('🚀 move-out.js v6.2 เริ่มทำงาน (meter by month)');
 
         setTimeout(() => loadMoveOuts(), 300);
 
@@ -991,7 +1075,11 @@
             if (el) el.addEventListener('input', recalcSummary);
         });
 
-        document.getElementById('moveOutDate').addEventListener('change', recalcSummary);
+        // ⭐ เปลี่ยนวันย้ายออก → โหลดมิเตอร์ใหม่
+        document.getElementById('moveOutDate').addEventListener('change', () => {
+            recalcSummary();
+            loadMeterByMonth();
+        });
         document.getElementById('moveOutDate').addEventListener('input', recalcSummary);
 
         document.getElementById('searchMoveOut').addEventListener('input', () => {
@@ -1022,7 +1110,7 @@
         window.cancelMoveOut = cancelMoveOut;
         window.loadMoveOuts = loadMoveOuts;
 
-        console.log('✅ move-out.js v6.1 โหลดสำเร็จ');
+        console.log('✅ move-out.js v6.2 โหลดสำเร็จ');
     });
 
 })();
