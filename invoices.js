@@ -123,22 +123,27 @@
     // Meter Fetch (manual form)
     // ==========================================
     async function fetchMeterFromAPI(contractId, billingMonth) {
-        const token = ++_meterFetchToken;
-        try {
-            const url = `${API_BASE}/meters?contract_id=${encodeURIComponent(contractId)}&billing_month=${encodeURIComponent(billingMonth)}&_t=${Date.now()}`;
-            const res = await fetch(url, { cache: 'no-store' });
-            if (!res.ok) return { ok: false, reason: `HTTP ${res.status}` };
-            const text = await res.text();
-            const parsed = text ? JSON.parse(text) : null;
-            if (token !== _meterFetchToken) return { ok: false, reason: 'stale' };
+    const token = ++_meterFetchToken;
+    try {
+        const buildingId = getCurrentBuildingId();
+        
+        // ⭐ ใช้ meters-preview แทน (เพราะ /meters ไม่มี)
+        const url = `${API_BASE}/${METERS_API_PATH}?building_id=${buildingId}&reading_month=${billingMonth}&_t=${Date.now()}`;
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) return { ok: false, reason: `HTTP ${res.status}` };
+        const text = await res.text();
+        const parsed = text ? JSON.parse(text) : null;
+        if (token !== _meterFetchToken) return { ok: false, reason: 'stale' };
 
-            let arr = toArray(parsed);
-            arr = arr.filter(m => {
-                if (m.contract_id !== undefined && m.contract_id !== null) {
-                    return Number(m.contract_id) === Number(contractId);
-                }
-                return true;
-            });
+        const arr = toArray(parsed);
+        // ⭐ filter contract_id ฝั่ง client
+        const target = arr.find(m => Number(m.contract_id) === Number(contractId));
+        if (!target) return { ok: false, reason: 'not_found' };
+        return { ok: true, meter: target };
+    } catch (e) {
+        return { ok: false, reason: e.message || 'fetch_error' };
+    }
+}
             if (arr.length === 0) return { ok: false, reason: 'not_found' };
 
             arr.sort((a, b) => {
