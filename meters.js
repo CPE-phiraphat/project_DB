@@ -1,12 +1,11 @@
 /* ==========================================
- * meters.js - จดมิเตอร์น้ำ-ไฟ (v3)
- * ⭐ v3: 
- *   - เดือน 1-12 + ปี + ◀ ▶
- *   - Rate section (ราคาไฟ/น้ำต่อหน่วย) ย้ายมาจาก invoices
+ * meters.js - จดมิเตอร์น้ำ-ไฟ (v4)
+ * ⭐ v4: 
+ *   - กรอกทุกห้อง (รวมเหมาจ่าย) — จดเป็นประวัติ
+ *   - Badge "เหมาจ่าย" แสดงข้าง label
  *   - Filter / Search / Progress bar
- *   - Validation เลขหลัง ≥ เลขก่อน
- *   - Draft autosave (localStorage รวม rates)
- *   - Save payload: readings + elec_rate + water_rate
+ *   - Rate section (ราคาไฟ/น้ำต่อหน่วย)
+ *   - Draft autosave (localStorage)
  * ========================================== */
 (function() {
     'use strict';
@@ -123,7 +122,6 @@
         const draft = loadDraft();
         if (!draft) return;
 
-        // rates
         if (draft._rates) {
             rates = { elec: draft._rates.elec || 0, water: draft._rates.water || 0 };
             const er = document.getElementById('elecRateInput');
@@ -132,7 +130,6 @@
             if (wr) wr.value = rates.water;
         }
 
-        // readings
         Object.keys(draft).forEach(cid => {
             if (cid === '_rates') return;
             const entry = draft[cid];
@@ -234,10 +231,23 @@
                 else rooms = [];
             }
 
-            meterData = rooms;
-            console.log(`📦 โหลดมิเตอร์ ${meterData.length} ห้อง (${readingMonth})`);
+            // 🛡 Defensive filter
+            const rawCount = rooms.length;
+            const currentBid = Number(buildingId);
+            meterData = rooms.filter(r => {
+                if (r.building_id !== undefined && r.building_id !== null) {
+                    return Number(r.building_id) === currentBid;
+                }
+                return true;
+            });
 
-            // ⭐ ดึง rate จาก response (top-level หรือ item แรก)
+            if (meterData.length !== rawCount) {
+                console.warn(`🛡 กรองออก ${rawCount - meterData.length} ห้อง ที่ไม่ใช่อาคาร ${currentBid}`);
+            }
+
+            console.log(`📦 โหลดมิเตอร์ ${meterData.length} ห้อง (อาคาร ${buildingId}, ${readingMonth})`);
+
+            // ดึง rate จาก response
             const firstRoom = meterData[0] || {};
             const elecRateFromAPI = _pickNum(data, ['elec_rate', 'elec_unit_price'], null)
                                  ?? _pickNum(firstRoom, ['elec_rate', 'elec_unit_price'], 0);
@@ -267,7 +277,6 @@
     function getFilteredData() {
         const q = state.search.trim().toLowerCase();
         return meterData.filter(item => {
-            // Determine "has reading" live from current input value
             const hasReading = checkHasReading(item);
             if (state.filter === 'pending' && hasReading) return false;
             if (state.filter === 'done' && !hasReading) return false;
@@ -281,16 +290,20 @@
     }
 
     function checkHasReading(item) {
-        const isFlatElec = String(item.elec_charge_type || '').toUpperCase() === 'FLAT_RATE';
-        const isFlatWater = String(item.water_charge_type || '').toUpperCase() === 'FLAT_RATE';
+        // ห้องว่าง → นับตาม has_reading
+        if (!item.has_tenant) {
+            return item.has_reading === true;
+        }
         const prevElec = parseFloat(item.prev_elec) || 0;
         const prevWater = parseFloat(item.prev_water) || 0;
         const currElecInp = document.querySelector(`input[data-contract="${item.contract_id}"][data-type="curr_elec"]`);
         const currWaterInp = document.querySelector(`input[data-contract="${item.contract_id}"][data-type="curr_water"]`);
         const currElec = currElecInp ? (parseFloat(currElecInp.value) || 0) : (parseFloat(item.curr_elec) || 0);
         const currWater = currWaterInp ? (parseFloat(currWaterInp.value) || 0) : (parseFloat(item.curr_water) || 0);
-        const elecOK = isFlatElec || currElec > prevElec;
-        const waterOK = isFlatWater || currWater > prevWater;
+
+        // ⭐ ต้องกรอกทุกห้อง — ทุก charge_type ต้องจดเลข
+        const elecOK = currElec > prevElec;
+        const waterOK = currWater > prevWater;
         return elecOK && waterOK;
     }
 
@@ -336,7 +349,7 @@
         const filtersBar = document.getElementById('meterFilters');
 
         if (meterData.length === 0) {
-            listEl.innerHTML = '<p class="text-center text-gray-400 py-8">ไม่พบห้องที่มีสัญญา ACTIVE</p>';
+            listEl.innerHTML = '<p class="text-center text-gray-400 py-8">ไม่พบห้องในอาคารนี้</p>';
             actionBar.classList.add('hidden');
             progressWrap.classList.add('hidden');
             filtersBar.classList.add('hidden');
@@ -391,7 +404,6 @@
             inp.addEventListener('input', saveDraft);
         });
 
-        // Rate inputs (bind ครั้งเดียว)
         const er = document.getElementById('elecRateInput');
         const wr = document.getElementById('waterRateInput');
         if (er && !er._bound) {
@@ -411,33 +423,37 @@
         const isFlatElec = String(item.elec_charge_type || '').toUpperCase() === 'FLAT_RATE';
         const isFlatWater = String(item.water_charge_type || '').toUpperCase() === 'FLAT_RATE';
         const hasReading = item.has_reading === true;
+        const hasTenant = item.has_tenant === true;
 
         const prevElec = parseFloat(item.prev_elec) || 0;
         const prevWater = parseFloat(item.prev_water) || 0;
-        const currElec = (item.curr_elec !== undefined && item.curr_elec !== null) ? item.curr_elec : prevElec;
-        const currWater = (item.curr_water !== undefined && item.curr_water !== null) ? item.curr_water : prevWater;
+        const currElec = item.has_reading ? item.curr_elec : '';
+        const currWater = item.has_reading ? item.curr_water : '';
 
-        const usedElec = Math.max(parseFloat(currElec) - prevElec, 0);
-        const usedWater = Math.max(parseFloat(currWater) - prevWater, 0);
+        const usedElec = Math.max((parseFloat(currElec) || 0) - prevElec, 0);
+        const usedWater = Math.max((parseFloat(currWater) || 0) - prevWater, 0);
 
         return `
-            <div class="p-4 hover:bg-gray-50/50 transition" data-room-row="${item.contract_id}">
+            <div class="p-4 hover:bg-gray-50/50 transition" data-room-row="${item.contract_id || item.room_id}">
                 <div class="flex items-center gap-2 mb-3 flex-wrap">
                     <span class="font-bold text-blue-600 text-base">ห้อง ${escapeHtml(item.room_number)}</span>
-                    <span class="text-sm text-gray-700">${escapeHtml(item.tenant_name || '-')}</span>
+                    ${hasTenant 
+                        ? `<span class="text-sm text-gray-700">${escapeHtml(item.tenant_name || '-')}</span>`
+                        : '<span class="text-sm text-gray-400 italic">— ห้องว่าง —</span>'}
                     ${isFlatElec ? '<span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full">⚡ เหมาจ่าย</span>' : ''}
                     ${isFlatWater ? '<span class="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">💧 เหมาจ่าย</span>' : ''}
                     ${hasReading
                         ? '<span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✅ บันทึกแล้ว</span>'
-                        : '<span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">⏳ ยังไม่จด</span>'}
+                        : (!hasTenant 
+                            ? '<span class="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">🚪 ว่าง</span>'
+                            : '<span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">⏳ ยังไม่จด</span>')}
                 </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <!-- ไฟฟ้า -->
-                    <div class="${isFlatElec ? 'opacity-50' : ''}">
+                    <div>
                         <div class="flex items-center gap-2 mb-2">
                             <label class="block text-xs font-medium text-gray-600">⚡ ไฟฟ้า</label>
-                            ${isFlatElec ? `<span class="text-xs text-yellow-700">(เหมาจ่าย ${formatNumber(item.elec_flat_rate)} ฿)</span>` : ''}
+                            ${isFlatElec ? `<span class="text-xs text-yellow-700">(สัญญาเหมาจ่าย — จดไว้เป็นประวัติ)</span>` : ''}
                         </div>
                         <div class="grid grid-cols-3 gap-2 items-end">
                             <div>
@@ -445,30 +461,29 @@
                                 <input type="number" step="0.01" readonly
                                        value="${prevElec}"
                                        class="w-full px-2 py-2 border border-gray-200 rounded text-sm bg-gray-100 text-gray-600 text-center"
-                                       data-contract="${item.contract_id}" data-type="prev_elec" tabindex="-1">
+                                       data-contract="${item.contract_id || ''}" data-type="prev_elec" tabindex="-1">
                             </div>
                             <div>
                                 <p class="text-xs text-gray-500 mb-1">หลัง</p>
-                                <input type="number" step="0.01" inputmode="decimal" ${isFlatElec ? 'disabled' : ''}
+                                <input type="number" step="0.01" inputmode="decimal"
                                        value="${currElec}"
                                        class="js-meter-input w-full px-2 py-2 border-2 border-blue-300 rounded text-base focus:ring-2 focus:ring-blue-500 outline-none font-bold text-blue-700 text-center"
-                                       data-contract="${item.contract_id}" data-type="curr_elec">
+                                       data-contract="${item.contract_id || ''}" data-type="curr_elec" data-room="${item.room_id || ''}">
                             </div>
                             <div>
                                 <p class="text-xs text-gray-500 mb-1">ใช้ไป</p>
                                 <div class="w-full px-2 py-2 border border-gray-200 rounded text-sm bg-green-50 text-green-700 font-bold text-center"
-                                     data-used="elec" data-contract="${item.contract_id}">
+                                     data-used="elec" data-contract="${item.contract_id || ''}" data-room="${item.room_id || ''}">
                                     ${formatNumber(usedElec)}
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- น้ำ -->
-                    <div class="${isFlatWater ? 'opacity-50' : ''}">
+                    <div>
                         <div class="flex items-center gap-2 mb-2">
                             <label class="block text-xs font-medium text-gray-600">💧 น้ำ</label>
-                            ${isFlatWater ? `<span class="text-xs text-blue-700">(เหมาจ่าย ${formatNumber(item.water_flat_rate)} ฿)</span>` : ''}
+                            ${isFlatWater ? `<span class="text-xs text-blue-700">(สัญญาเหมาจ่าย — จดไว้เป็นประวัติ)</span>` : ''}
                         </div>
                         <div class="grid grid-cols-3 gap-2 items-end">
                             <div>
@@ -476,19 +491,19 @@
                                 <input type="number" step="0.01" readonly
                                        value="${prevWater}"
                                        class="w-full px-2 py-2 border border-gray-200 rounded text-sm bg-gray-100 text-gray-600 text-center"
-                                       data-contract="${item.contract_id}" data-type="prev_water" tabindex="-1">
+                                       data-contract="${item.contract_id || ''}" data-type="prev_water" tabindex="-1">
                             </div>
                             <div>
                                 <p class="text-xs text-gray-500 mb-1">หลัง</p>
-                                <input type="number" step="0.01" inputmode="decimal" ${isFlatWater ? 'disabled' : ''}
+                                <input type="number" step="0.01" inputmode="decimal"
                                        value="${currWater}"
                                        class="js-meter-input w-full px-2 py-2 border-2 border-blue-300 rounded text-base focus:ring-2 focus:ring-blue-500 outline-none font-bold text-blue-700 text-center"
-                                       data-contract="${item.contract_id}" data-type="curr_water">
+                                       data-contract="${item.contract_id || ''}" data-type="curr_water" data-room="${item.room_id || ''}">
                             </div>
                             <div>
                                 <p class="text-xs text-gray-500 mb-1">ใช้ไป</p>
                                 <div class="w-full px-2 py-2 border border-gray-200 rounded text-sm bg-green-50 text-green-700 font-bold text-center"
-                                     data-used="water" data-contract="${item.contract_id}">
+                                     data-used="water" data-contract="${item.contract_id || ''}" data-room="${item.room_id || ''}">
                                     ${formatNumber(usedWater)}
                                 </div>
                             </div>
@@ -500,7 +515,7 @@
                     <input type="text" placeholder="หมายเหตุ (ไม่บังคับ)"
                            value="${escapeHtml(item.reading_note || '')}"
                            class="js-meter-note w-full px-3 py-1.5 border border-gray-200 rounded text-xs outline-none focus:border-blue-500"
-                           data-contract="${item.contract_id}">
+                           data-contract="${item.contract_id || ''}" data-room="${item.room_id || ''}">
                 </div>
             </div>
         `;
@@ -519,7 +534,7 @@
         const prevVal = parseFloat(prevEl?.value) || 0;
         const currVal = parseFloat(inp.value) || 0;
 
-        if (currVal < prevVal) {
+        if (currVal < prevVal && currVal > 0) {
             inp.classList.add('meter-input-error');
             inp.title = `⚠️ เลขหลังต้องมากกว่าหรือเท่ากับเลขก่อน (${prevVal})`;
         } else {
@@ -531,7 +546,7 @@
         const usedEl = document.querySelector(`[data-used="${usedType}"][data-contract="${cid}"]`);
         if (usedEl) {
             usedEl.innerText = formatNumber(Math.max(currVal - prevVal, 0));
-            if (currVal < prevVal) {
+            if (currVal < prevVal && currVal > 0) {
                 usedEl.classList.add('bg-red-50', 'text-red-600');
                 usedEl.classList.remove('bg-green-50', 'text-green-700');
             } else {
@@ -590,11 +605,14 @@
         const errors = [];
 
         meterData.forEach(item => {
-            const prevElec = parseFloat(document.querySelector(`input[data-contract="${item.contract_id}"][data-type="prev_elec"]`)?.value) || 0;
-            const prevWater = parseFloat(document.querySelector(`input[data-contract="${item.contract_id}"][data-type="prev_water"]`)?.value) || 0;
-            const currElecInp = document.querySelector(`input[data-contract="${item.contract_id}"][data-type="curr_elec"]`);
-            const currWaterInp = document.querySelector(`input[data-contract="${item.contract_id}"][data-type="curr_water"]`);
-            const noteInp = document.querySelector(`input.js-meter-note[data-contract="${item.contract_id}"]`);
+            // ⭐ ทุกห้อง — จดทุก charge_type
+            const cid = item.contract_id || '';
+            const rid = item.room_id || '';
+            const prevElec = parseFloat(document.querySelector(`input[data-contract="${cid}"][data-type="prev_elec"]`)?.value) || 0;
+            const prevWater = parseFloat(document.querySelector(`input[data-contract="${cid}"][data-type="prev_water"]`)?.value) || 0;
+            const currElecInp = document.querySelector(`input[data-contract="${cid}"][data-type="curr_elec"]`);
+            const currWaterInp = document.querySelector(`input[data-contract="${cid}"][data-type="curr_water"]`);
+            const noteInp = document.querySelector(`input.js-meter-note[data-contract="${cid}"]`);
 
             const currElec = parseFloat(currElecInp?.value) || 0;
             const currWater = parseFloat(currWaterInp?.value) || 0;
@@ -607,8 +625,8 @@
             }
 
             readings.push({
-                contract_id: parseInt(item.contract_id),
-                room_id: item.room_id ? parseInt(item.room_id) : null,
+                contract_id: item.contract_id ? parseInt(item.contract_id) : null,
+                room_id: rid ? parseInt(rid) : null,
                 elec_prev: prevElec,
                 elec_curr: currElec,
                 water_prev: prevWater,
@@ -670,7 +688,7 @@
     // 7. Init
     // ==========================================
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('🚀 meters.js v3 เริ่มทำงาน');
+        console.log('🚀 meters.js v4 เริ่มทำงาน');
 
         const now = new Date();
         state.year = now.getFullYear();
@@ -701,7 +719,7 @@
 
         setTimeout(() => loadMeterReadings(), 500);
 
-        console.log('✅ meters.js v3 โหลดสำเร็จ');
+        console.log('✅ meters.js v4 โหลดสำเร็จ');
     });
 
 })();
