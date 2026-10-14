@@ -1,14 +1,12 @@
 /* ==========================================
- * invoices.js - จัดการใบแจ้งหนี้ (v11)
- * ⭐ v11: ดึงมิเตอร์จาก meters API อัตโนมัติ (ไม่ต้องกรอกเอง)
+ * invoices.js - จัดการใบแจ้งหนี้ (v12)
+ * ⭐ v12: Billing Preview ดึงมิเตอร์จาก DB (read-only)
+ *         ไม่มี rate input แล้ว — ดึงจาก meters
  * ========================================== */
 (function() {
     'use strict';
 
     const API_BASE = 'http://localhost:5678/webhook';
-
-    // ⚙️ แก้ชื่อ endpoint ที่นี่ถ้า backend ใช้ path อื่น
-    // คาดหวัง response: [{ contract_id, billing_month, elec_curr, elec_prev, water_curr, water_prev }]
     const METERS_API_PATH = 'meters';
 
     let allInvoices = [];
@@ -19,11 +17,8 @@
     let isLoading = false;
     let selectedContract = null;
 
-    // State สำหรับ Billing Preview
     let billingPreviewData = [];
     let billingSelected = new Set();
-
-    // Token กัน race condition ตอน fetch มิเตอร์
     let _meterFetchToken = 0;
 
     const showNotification = window.showNotification;
@@ -34,11 +29,9 @@
     const getCurrentBuildingName = window.getCurrentBuildingName;
 
     // ==========================================
-    // Helper: Normalize
+    // Helpers
     // ==========================================
-    function normalizeStatus(s) {
-        return String(s || '').trim().toUpperCase();
-    }
+    function normalizeStatus(s) { return String(s || '').trim().toUpperCase(); }
 
     function normalizeContractStatus(s) {
         const u = normalizeStatus(s);
@@ -49,9 +42,7 @@
         return u;
     }
 
-    function isPaidValue(v) {
-        return v === true || v === 'true' || v === 1 || v === '1';
-    }
+    function isPaidValue(v) { return v === true || v === 'true' || v === 1 || v === '1'; }
 
     function extractResult(raw) {
         if (!raw) return { success: false, message: 'Response ว่างเปล่า' };
@@ -118,28 +109,21 @@
         return Math.floor(num / 100);
     }
 
-    // ==========================================
-    // ⭐ Meter Helpers (v11)
-    // ==========================================
-    function _pickNum(obj, keys) {
-        if (!obj) return null;
+    // ⭐ เลือกค่าจาก object หลายชื่อ fallback
+    function _pickNum(obj, keys, fallback) {
+        if (!obj) return fallback;
         for (const k of keys) {
             if (obj[k] !== undefined && obj[k] !== null && obj[k] !== '') {
                 const n = parseFloat(obj[k]);
                 if (!isNaN(n)) return n;
             }
         }
-        return null;
+        return fallback;
     }
 
-    function _pickStr(obj, keys) {
-        if (!obj) return '';
-        for (const k of keys) {
-            if (obj[k] !== undefined && obj[k] !== null && obj[k] !== '') return String(obj[k]);
-        }
-        return '';
-    }
-
+    // ==========================================
+    // Meter Fetch (manual form)
+    // ==========================================
     async function fetchMeterFromAPI(contractId, billingMonth) {
         const token = ++_meterFetchToken;
         try {
@@ -151,7 +135,6 @@
             if (token !== _meterFetchToken) return { ok: false, reason: 'stale' };
 
             let arr = toArray(parsed);
-            // filter ฝั่ง client เผื่อ server ไม่ filter
             arr = arr.filter(m => {
                 if (m.contract_id !== undefined && m.contract_id !== null) {
                     return Number(m.contract_id) === Number(contractId);
@@ -159,21 +142,18 @@
                 return true;
             });
             arr = arr.filter(m => {
-                const mm = m.billing_month || m.meter_month || m.month;
+                const mm = m.billing_month || m.meter_month || m.month || m.reading_month;
                 return !mm || String(mm) === String(billingMonth);
             });
-
             if (arr.length === 0) return { ok: false, reason: 'not_found' };
 
-            // เรียงตามเดือน desc เอา newest
             arr.sort((a, b) => {
-                const am = String(a.billing_month || a.meter_month || a.month || '');
-                const bm = String(b.billing_month || b.meter_month || b.month || '');
+                const am = String(a.billing_month || a.meter_month || a.month || a.reading_month || '');
+                const bm = String(b.billing_month || b.meter_month || b.month || b.reading_month || '');
                 return bm.localeCompare(am);
             });
             return { ok: true, meter: arr[0] };
         } catch (e) {
-            console.warn('meter fetch failed', e);
             return { ok: false, reason: e.message || 'fetch_error' };
         }
     }
@@ -201,7 +181,6 @@
 
         const res = await fetchMeterFromAPI(contractId, billingMonth);
 
-        // ---- ไฟฟ้า ----
         if (isFlatElec) {
             if (elecStatus) elecStatus.innerHTML = '<span class="text-gray-400">เหมาจ่าย</span>';
         } else if (!res.ok) {
@@ -211,14 +190,15 @@
             if (elecStatus) elecStatus.innerHTML = `<span class="${cls}">${escapeHtml(msg)}</span>`;
         } else {
             const m = res.meter;
-            const ec = _pickNum(m, ['elec_curr', 'elec_current', 'elec_meter', 'elec_reading']);
-            const ep = _pickNum(m, ['elec_prev', 'elec_previous', 'elec_before']);
+            const ec = _pickNum(m, ['elec_curr', 'elec_current', 'elec_meter', 'elec_reading', 'curr_elec_meter'], null);
+            const ep = _pickNum(m, ['elec_prev', 'elec_previous', 'elec_before', 'prev_elec_meter'], null);
+            const rate = _pickNum(m, ['elec_rate', 'elec_unit_price'], null);
             if (ep !== null) document.getElementById('elecPrev').value = ep;
             if (ec !== null) document.getElementById('elecCurr').value = ec;
+            if (rate !== null) document.getElementById('elecUnitPrice').value = rate;
             if (elecStatus) elecStatus.innerHTML = '<span class="text-green-600">✅ โหลดแล้ว</span>';
         }
 
-        // ---- น้ำ ----
         if (isFlatWater) {
             if (waterStatus) waterStatus.innerHTML = '<span class="text-gray-400">เหมาจ่าย</span>';
         } else if (!res.ok) {
@@ -228,19 +208,18 @@
             if (waterStatus) waterStatus.innerHTML = `<span class="${cls}">${escapeHtml(msg)}</span>`;
         } else {
             const m = res.meter;
-            const wc = _pickNum(m, ['water_curr', 'water_current', 'water_meter', 'water_reading']);
-            const wp = _pickNum(m, ['water_prev', 'water_previous', 'water_before']);
+            const wc = _pickNum(m, ['water_curr', 'water_current', 'water_meter', 'water_reading', 'curr_water_meter'], null);
+            const wp = _pickNum(m, ['water_prev', 'water_previous', 'water_before', 'prev_water_meter'], null);
+            const rate = _pickNum(m, ['water_rate', 'water_unit_price'], null);
             if (wp !== null) document.getElementById('waterPrev').value = wp;
             if (wc !== null) document.getElementById('waterCurr').value = wc;
+            if (rate !== null) document.getElementById('waterUnitPrice').value = rate;
             if (waterStatus) waterStatus.innerHTML = '<span class="text-green-600">✅ โหลดแล้ว</span>';
         }
 
         recalcTotal();
     }
 
-    // ==========================================
-    // ⭐ Meter State Management (readonly / disabled)
-    // ==========================================
     function applyMeterStates() {
         const allowEdit = document.getElementById('allowEditMeter')?.checked === true;
         const elecFlat = parseFloat(document.getElementById('elecFlatRate')?.value) || 0;
@@ -253,13 +232,9 @@
             el.readOnly = !editable;
             el.disabled = locked;
             el.classList.remove('bg-white', 'bg-gray-100', 'bg-gray-200', 'text-gray-400', 'cursor-not-allowed');
-            if (locked) {
-                el.classList.add('bg-gray-200', 'text-gray-400', 'cursor-not-allowed');
-            } else if (!editable) {
-                el.classList.add('bg-gray-100');
-            } else {
-                el.classList.add('bg-white');
-            }
+            if (locked) el.classList.add('bg-gray-200', 'text-gray-400', 'cursor-not-allowed');
+            else if (!editable) el.classList.add('bg-gray-100');
+            else el.classList.add('bg-white');
         }
 
         ['elecPrev', 'elecCurr', 'elecUnitPrice'].forEach(id => {
@@ -328,8 +303,6 @@
             let invoices = toArray(parsed);
             
             allInvoices = invoices.filter(i => i.is_deleted !== true && i.is_deleted !== 'true');
-            
-            console.log(`📦 โหลด ${allInvoices.length} ใบแจ้งหนี้`);
             renderInvoices();
             
             const subtitle = document.getElementById('invoiceSubtitle');
@@ -504,7 +477,6 @@
                     document.getElementById('contractIdValue').value = c.contract_id;
                     document.getElementById('contractSearch').value = `ห้อง ${c.room_number} - ${c.tenant_name}`;
                     selectedLabel.innerText = `✓ เลือก: ห้อง ${c.room_number} - ${c.tenant_name}`;
-                    
                     document.getElementById('roomPrice').value = c.rent_price || 0;
                     
                     if (c.elec_charge_type === 'flat_rate' && c.elec_flat_rate > 0) {
@@ -513,7 +485,6 @@
                         document.getElementById('elecCurr').value = 0;
                         document.getElementById('elecUnitPrice').value = 0;
                     } else {
-                        // ⭐ v11: ไม่ set initial_elec_meter เป็น prev แล้ว — รอ API
                         document.getElementById('elecFlatRate').value = 0;
                     }
                     
@@ -527,13 +498,9 @@
                     }
                     
                     results.classList.add('hidden');
-                    
                     document.getElementById('elecFlatRate').dispatchEvent(new Event('input'));
                     document.getElementById('waterFlatRate').dispatchEvent(new Event('input'));
-                    
                     recalcTotal();
-                    
-                    // ⭐ v11: ดึงมิเตอร์อัตโนมัติ
                     autoFillMeterFromAPI();
                 });
                 results.appendChild(div);
@@ -560,11 +527,8 @@
         const elecFlatRate = parseFloat(document.getElementById('elecFlatRate').value) || 0;
         
         let elecAmount = 0;
-        if (elecFlatRate > 0) {
-            elecAmount = elecFlatRate;
-        } else {
-            elecAmount = Math.max(elecCurr - elecPrev, 0) * elecUnitPrice;
-        }
+        if (elecFlatRate > 0) elecAmount = elecFlatRate;
+        else elecAmount = Math.max(elecCurr - elecPrev, 0) * elecUnitPrice;
         document.getElementById('elecTotal').value = elecAmount.toFixed(2);
         
         const waterPrev = parseFloat(document.getElementById('waterPrev').value) || 0;
@@ -573,11 +537,8 @@
         const waterFlatRate = parseFloat(document.getElementById('waterFlatRate').value) || 0;
         
         let waterAmount = 0;
-        if (waterFlatRate > 0) {
-            waterAmount = waterFlatRate;
-        } else {
-            waterAmount = Math.max(waterCurr - waterPrev, 0) * waterUnitPrice;
-        }
+        if (waterFlatRate > 0) waterAmount = waterFlatRate;
+        else waterAmount = Math.max(waterCurr - waterPrev, 0) * waterUnitPrice;
         document.getElementById('waterTotal').value = waterAmount.toFixed(2);
         
         const arrears = parseFloat(document.getElementById('arrears').value) || 0;
@@ -600,7 +561,7 @@
     }
 
     // ==========================================
-    // 5. Setup Due Date Status
+    // 5. Due Date Status
     // ==========================================
     function setupDueDateStatus() {
         const dueDate = document.getElementById('dueDate');
@@ -624,14 +585,13 @@
                 statusEl.className = 'text-xs font-medium mt-1 text-gray-500';
             }
         }
-        
         dueDate.addEventListener('change', updateStatus);
         dueDate.addEventListener('input', updateStatus);
         updateStatus();
     }
 
     // ==========================================
-    // 6. Setup Fine Reason
+    // 6. Fine Reason
     // ==========================================
     function setupFineReason() {
         const fine = document.getElementById('fine');
@@ -650,7 +610,6 @@
                 reason.placeholder = 'เช่น ชำระล่าช้า 5 วัน, ทำผิดกฎหอพัก...';
             }
         }
-        
         fine.addEventListener('input', updateHighlight);
         fine.addEventListener('change', updateHighlight);
     }
@@ -673,21 +632,17 @@
         
         const today = new Date();
         document.getElementById('issueDate').value = today.toISOString().split('T')[0];
-        
         const due = new Date();
         due.setDate(due.getDate() + 10);
         document.getElementById('dueDate').value = due.toISOString().split('T')[0];
-        
         document.getElementById('billingMonth').value = today.toISOString().slice(0, 7);
         
-        // reset meter status
         const es = document.getElementById('elecMeterStatus'); if (es) es.innerHTML = '';
         const ws = document.getElementById('waterMeterStatus'); if (ws) ws.innerHTML = '';
         const ae = document.getElementById('allowEditMeter'); if (ae) ae.checked = false;
         
         recalcTotal();
         setupDueDateStatus();
-        
         document.getElementById('elecFlatRate').dispatchEvent(new Event('input'));
         document.getElementById('waterFlatRate').dispatchEvent(new Event('input'));
         
@@ -716,9 +671,7 @@
             const contracts = toArray(parsed);
             contractData = contracts.find(c => Number(c.contract_id) === Number(inv.contract_id));
             if (contractData) selectedContract = contractData;
-        } catch (e) {
-            console.warn('⚠️ ไม่สามารถดึงสัญญา:', e);
-        }
+        } catch (e) { console.warn('⚠️ ดึงสัญญาไม่ได้:', e); }
 
         document.getElementById('invoiceModalTitle').innerText = `แก้ไขใบแจ้งหนี้ ${inv.vol_no || ''}`;
         document.getElementById('invoiceId').value = inv.invoice_id;
@@ -741,16 +694,10 @@
         
         let elecFlatRate = inv.elec_flat_rate || 0;
         let waterFlatRate = inv.water_flat_rate || 0;
-        
         if (contractData) {
-            if (contractData.elec_charge_type === 'flat_rate' && elecFlatRate === 0) {
-                elecFlatRate = contractData.elec_flat_rate || 0;
-            }
-            if (contractData.water_charge_type === 'flat_rate' && waterFlatRate === 0) {
-                waterFlatRate = contractData.water_flat_rate || 0;
-            }
+            if (contractData.elec_charge_type === 'flat_rate' && elecFlatRate === 0) elecFlatRate = contractData.elec_flat_rate || 0;
+            if (contractData.water_charge_type === 'flat_rate' && waterFlatRate === 0) waterFlatRate = contractData.water_flat_rate || 0;
         }
-        
         document.getElementById('elecFlatRate').value = elecFlatRate;
         document.getElementById('waterFlatRate').value = waterFlatRate;
         
@@ -760,7 +707,6 @@
         document.getElementById('fine').value = inv.fine || 0;
         document.getElementById('fineReason').value = inv.fine_reason || '';
         
-        // reset allowEdit toggle
         const ae = document.getElementById('allowEditMeter'); if (ae) ae.checked = false;
         
         document.getElementById('elecFlatRate').dispatchEvent(new Event('input'));
@@ -774,7 +720,6 @@
         modal.classList.remove('hidden');
         modal.classList.add('flex');
         
-        // ⭐ v11: แสดงผลจาก meters (แต่ค่าเดิมจาก invoice ยังอยู่ ถ้า API fail)
         autoFillMeterFromAPI();
     }
 
@@ -807,20 +752,18 @@
         document.getElementById('viewAppliance').innerText = formatNumber(inv.appliance_rental) + ' ฿';
         
         let elecLabel = '';
-        if (inv.elec_flat_rate > 0) {
-            elecLabel = formatNumber(inv.elec_flat_rate) + ' ฿ (เหมาจ่าย)';
-        } else {
-            const elecAmount = Math.max((inv.elec_curr || 0) - (inv.elec_prev || 0), 0) * (inv.elec_unit_price || 0);
-            elecLabel = formatNumber(elecAmount) + ' ฿';
+        if (inv.elec_flat_rate > 0) elecLabel = formatNumber(inv.elec_flat_rate) + ' ฿ (เหมาจ่าย)';
+        else {
+            const amt = Math.max((inv.elec_curr || 0) - (inv.elec_prev || 0), 0) * (inv.elec_unit_price || 0);
+            elecLabel = formatNumber(amt) + ' ฿';
         }
         document.getElementById('viewElec').innerText = elecLabel;
         
         let waterLabel = '';
-        if (inv.water_flat_rate > 0) {
-            waterLabel = formatNumber(inv.water_flat_rate) + ' ฿ (เหมาจ่าย)';
-        } else {
-            const waterAmount = Math.max((inv.water_curr || 0) - (inv.water_prev || 0), 0) * (inv.water_unit_price || 0);
-            waterLabel = formatNumber(waterAmount) + ' ฿';
+        if (inv.water_flat_rate > 0) waterLabel = formatNumber(inv.water_flat_rate) + ' ฿ (เหมาจ่าย)';
+        else {
+            const amt = Math.max((inv.water_curr || 0) - (inv.water_prev || 0), 0) * (inv.water_unit_price || 0);
+            waterLabel = formatNumber(amt) + ' ฿';
         }
         document.getElementById('viewWater').innerText = waterLabel;
         
@@ -866,7 +809,7 @@
     }
 
     // ==========================================
-    // 10. บันทึก (Manual Form)
+    // 10. Save (Manual Form)
     // ==========================================
     async function saveInvoiceData(e) {
         if (e) e.preventDefault();
@@ -899,12 +842,6 @@
         if (!billingMonth) return showNotification('⚠️ กรุณาเลือกเดือนที่เรียกเก็บ', 'error');
         if (!issueDate || !dueDate) return showNotification('⚠️ กรุณาเลือกวันออกบิล/กำหนดชำระ', 'error');
         if (fine > 0 && !fineReason) return showNotification('⚠️ กรุณากรอกเหตุผลค่าปรับ', 'error');
-        
-        // ⭐ v11: ถ้าเป็น per_unit ต้องมีเลขมิเตอร์
-        if (elecFlatRate === 0 && elecCurr === 0 && elecPrev === 0) {
-            // ยอมรับได้ (อาจเป็นเดือนแรก) แต่เตือนเบาๆ
-            console.warn('⚠️ ไม่มีเลขมิเตอร์ไฟ');
-        }
 
         btnText.innerText = 'กำลังบันทึก...';
         submitBtn.disabled = true;
@@ -935,7 +872,6 @@
                 issue_date: issueDate,
                 due_date: dueDate
             };
-
             if (isEdit) payload.invoice_id = currentEditingInvoiceId;
 
             const response = await fetch(endpoint, {
@@ -945,14 +881,13 @@
             });
 
             const text = await response.text();
-
             let raw = null;
             try { raw = text ? JSON.parse(text) : null; } catch(_) {}
             const result = extractResult(raw);
 
             if (response.ok && result.success === true) {
                 closeInvoiceModal();
-                showNotification(isEdit ? '✅ แก้ไขใบแจ้งหนี้สำเร็จ!' : '✅ ออกใบแจ้งหนี้สำเร็จ!', 'success');
+                showNotification(isEdit ? '✅ แก้ไขสำเร็จ!' : '✅ ออกบิลสำเร็จ!', 'success');
                 setTimeout(async () => { await loadInvoices(); }, 500);
             } else {
                 throw new Error(result.message || `HTTP ${response.status}`);
@@ -987,18 +922,15 @@
 
     async function confirmDeleteInvoice() {
         if (!deletingInvoiceId) return;
-
         const btn = document.getElementById('confirmDeleteInvoiceBtn');
         btn.disabled = true;
         btn.innerText = 'กำลังลบ...';
-
         try {
             const response = await fetch(`${API_BASE}/invoices-delete?id=${deletingInvoiceId}`, { method: 'DELETE' });
             const text = await response.text();
             let raw = null;
             try { raw = text ? JSON.parse(text) : null; } catch(_) {}
             const result = extractResult(raw);
-
             if (response.ok && result.success === true) {
                 closeDeleteInvoiceModal();
                 showNotification('🗑️ ลบสำเร็จ', 'success');
@@ -1007,7 +939,6 @@
                 throw new Error(result.message || 'ไม่สามารถลบได้');
             }
         } catch (error) {
-            console.error('❌ ลบล้มเหลว:', error);
             showNotification('❌ ' + error.message, 'error');
         } finally {
             btn.disabled = false;
@@ -1016,13 +947,10 @@
     }
 
     // ==========================================
-    // 12. Billing Preview (ออกบิลรายเดือน)
+    // 12. Billing Preview (Modal)
     // ==========================================
     function openGenerateMonthlyModal() {
-        if (!getCurrentBuildingId()) {
-            showNotification('⚠️ กรุณาเลือกอาคารก่อน', 'error');
-            return;
-        }
+        if (!getCurrentBuildingId()) { showNotification('⚠️ กรุณาเลือกอาคารก่อน', 'error'); return; }
 
         const now = new Date();
         const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -1031,10 +959,8 @@
         document.getElementById('generateIssueDate').value = now.toISOString().split('T')[0];
         const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 10);
         document.getElementById('generateDueDate').value = nextMonth.toISOString().split('T')[0];
-        document.getElementById('generateElecRate').value = '0';
-        document.getElementById('generateWaterRate').value = '0';
         document.getElementById('generateResult').classList.add('hidden');
-        document.getElementById('billingRoomList').innerHTML = '<p class="text-center text-gray-400 py-6">กรุณากด "🔄 โหลดรายการห้อง"</p>';
+        document.getElementById('billingRoomList').innerHTML = '<p class="text-center text-gray-400 py-6">กรุณากด "🔄 โหลดรายการห้อง + มิเตอร์"</p>';
         document.getElementById('billingSummary').innerText = '';
 
         billingPreviewData = [];
@@ -1057,11 +983,7 @@
     async function loadBillingPreview() {
         const buildingId = getCurrentBuildingId();
         const billingMonth = document.getElementById('generateMonth').value;
-
-        if (!billingMonth) {
-            showNotification('⚠️ กรุณาเลือกเดือนก่อน', 'error');
-            return;
-        }
+        if (!billingMonth) { showNotification('⚠️ กรุณาเลือกเดือนก่อน', 'error'); return; }
 
         const listEl = document.getElementById('billingRoomList');
         listEl.innerHTML = '<p class="text-center text-gray-400 py-6">⏳ กำลังโหลด...</p>';
@@ -1071,92 +993,29 @@
             const res = await fetch(url, { cache: 'no-store' });
             const data = await res.json();
 
-            console.log('🔍 Raw response:', data);
-
             let rooms = data;
             if (!Array.isArray(rooms)) {
-                if (rooms && typeof rooms === 'object' && Array.isArray(rooms.data)) {
-                    rooms = rooms.data;
-                } else if (rooms && typeof rooms === 'object' && Object.keys(rooms).length > 0) {
-                    rooms = [rooms];
-                } else {
-                    rooms = [];
-                }
+                if (rooms && typeof rooms === 'object' && Array.isArray(rooms.data)) rooms = rooms.data;
+                else if (rooms && typeof rooms === 'object' && Object.keys(rooms).length > 0) rooms = [rooms];
+                else rooms = [];
             }
 
             billingPreviewData = rooms;
-            console.log('📦 Preview rooms:', billingPreviewData.length);
 
             billingSelected = new Set();
             billingPreviewData.forEach(item => {
-                if (!item.has_invoice) {
-                    billingSelected.add(String(item.contract_id));
-                }
+                if (!item.has_invoice) billingSelected.add(String(item.contract_id));
             });
 
             renderBillingList();
         } catch (err) {
             console.error('❌ Preview error:', err);
-            listEl.innerHTML = `<p class="text-center text-red-500 py-6">❌ ${err.message}</p>`;
+            listEl.innerHTML = `<p class="text-center text-red-500 py-6">❌ ${escapeHtml(err.message)}</p>`;
         }
     }
 
     // ==========================================
-    // ⭐ v11: โหลดมิเตอร์ทั้งหมด (Bulk) ใน Billing Preview
-    // ==========================================
-    async function autoFillPreviewMeters() {
-        const buildingId = getCurrentBuildingId();
-        const billingMonth = document.getElementById('generateMonth').value;
-        if (!buildingId || !billingMonth) {
-            showNotification('⚠️ กรุณาเลือกเดือนก่อน', 'error');
-            return;
-        }
-        if (billingPreviewData.length === 0) {
-            showNotification('⚠️ กรุณากด "โหลดรายการห้อง" ก่อน', 'error');
-            return;
-        }
-
-        showNotification('⏳ กำลังโหลดมิเตอร์...', 'info');
-
-        try {
-            const url = `${API_BASE}/${METERS_API_PATH}?building_id=${buildingId}&billing_month=${billingMonth}&_t=${Date.now()}`;
-            const res = await fetch(url, { cache: 'no-store' });
-            const text = await res.text();
-            const parsed = text ? JSON.parse(text) : null;
-            const arr = toArray(parsed);
-
-            const map = {};
-            arr.forEach(m => {
-                const cid = String(m.contract_id || '');
-                if (cid) map[cid] = m;
-            });
-
-            let elecFilled = 0, waterFilled = 0;
-            billingPreviewData.forEach(item => {
-                const m = map[String(item.contract_id)];
-                if (!m) return;
-                const ec = _pickNum(m, ['elec_curr', 'elec_current', 'elec_meter', 'elec_reading']);
-                const wc = _pickNum(m, ['water_curr', 'water_current', 'water_meter', 'water_reading']);
-                if (ec !== null) {
-                    const inp = document.querySelector(`.js-elec-curr[data-contract-id="${item.contract_id}"]`);
-                    if (inp) { inp.value = ec; elecFilled++; }
-                }
-                if (wc !== null) {
-                    const inp = document.querySelector(`.js-water-curr[data-contract-id="${item.contract_id}"]`);
-                    if (inp) { inp.value = wc; waterFilled++; }
-                }
-            });
-
-            recalcAllBilling();
-            showNotification(`✅ โหลดแล้ว — ไฟ ${elecFilled} / น้ำ ${waterFilled} ห้อง`, 'success');
-        } catch (e) {
-            console.error('❌ bulk meter error', e);
-            showNotification('❌ ' + (e.message || 'โหลดไม่สำเร็จ'), 'error');
-        }
-    }
-
-    // ==========================================
-    // 13. Render Billing List
+    // ⭐ 13. Render Billing List (v12 — READ-ONLY from DB)
     // ==========================================
     function renderBillingList() {
         const listEl = document.getElementById('billingRoomList');
@@ -1199,9 +1058,28 @@
                 const waterFlatRate = parseFloat(item.water_flat_rate) || 0;
                 const rentPrice = parseFloat(item.rent_price) || 0;
                 
-                const initialTotal = rentPrice 
-                    + (isFlatElec ? elecFlatRate : 0)
-                    + (isFlatWater ? waterFlatRate : 0);
+                // ⭐ ค่ามิเตอร์ — อ่านจาก DB (preview response)
+                const prevElec = _pickNum(item, ['prev_elec_meter', 'elec_prev', 'prev_elec'], 0);
+                const prevWater = _pickNum(item, ['prev_water_meter', 'water_prev', 'prev_water'], 0);
+                const currElec = _pickNum(item, ['curr_elec_meter', 'elec_curr', 'curr_elec'], prevElec);
+                const currWater = _pickNum(item, ['curr_water_meter', 'water_curr', 'curr_water'], prevWater);
+                
+                // ⭐ rate อ่านจาก preview (ถ้าไม่มี ใช้ 0)
+                const elecRate = _pickNum(item, ['elec_rate', 'elec_unit_price'], 0);
+                const waterRate = _pickNum(item, ['water_rate', 'water_unit_price'], 0);
+                
+                const usedElec = Math.max(currElec - prevElec, 0);
+                const usedWater = Math.max(currWater - prevWater, 0);
+                
+                const elecAmt = isFlatElec ? elecFlatRate : usedElec * elecRate;
+                const waterAmt = isFlatWater ? waterFlatRate : usedWater * waterRate;
+                const total = rentPrice + elecAmt + waterAmt;
+                
+                // ⭐ flag ว่ายังไม่จดมิเตอร์
+                const noElecReading = !isFlatElec && currElec === prevElec && prevElec > 0;
+                const noWaterReading = !isFlatWater && currWater === prevWater && prevWater > 0;
+                const hasMeterData = _pickNum(item, ['curr_elec_meter', 'elec_curr', 'curr_elec'], null) !== null
+                                  || _pickNum(item, ['curr_water_meter', 'water_curr', 'curr_water'], null) !== null;
                 
                 const disabled = isBilled ? 'opacity-50' : '';
                 
@@ -1216,6 +1094,7 @@
                                     <span class="font-bold text-blue-600">ห้อง ${escapeHtml(item.room_number)}</span>
                                     <span class="text-sm text-gray-700">${escapeHtml(item.tenant_name)}</span>
                                     ${isBilled ? '<span class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">⛔ มีบิลแล้ว</span>' : ''}
+                                    ${!isBilled && !hasMeterData ? '<span class="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">⚠️ ยังไม่จดมิเตอร์</span>' : ''}
                                 </div>
                                 <div class="text-xs text-gray-500 mb-2">ค่าเช่า ${formatNumber(rentPrice)} ฿/เดือน</div>
                                 
@@ -1223,35 +1102,47 @@
                                 <div class="grid grid-cols-2 gap-3 text-xs">
                                     ${isFlatElec ? `
                                     <div>
-                                        <label class="block text-yellow-700 font-medium mb-1">⚡ เหมาจ่าย (฿)</label>
-                                        <input type="number" class="w-full px-2 py-1 border-2 border-yellow-300 rounded text-sm bg-yellow-50 text-yellow-800 font-bold" 
-                                               value="${elecFlatRate}" disabled>
+                                        <div class="text-yellow-700 font-medium mb-1">⚡ เหมาจ่าย</div>
+                                        <div class="bg-yellow-50 text-yellow-800 font-bold rounded px-3 py-2 text-sm">
+                                            ${formatNumber(elecFlatRate)} ฿
+                                        </div>
                                     </div>
                                     ` : `
                                     <div>
-                                        <label class="block text-gray-500 mb-1">⚡ ไฟ: ${item.prev_elec_meter} →</label>
-                                        <input type="number" step="0.01" class="js-elec-curr w-full px-2 py-1 border border-gray-300 rounded text-sm" 
-                                               value="${item.prev_elec_meter}" data-contract-id="${item.contract_id}">
+                                        <div class="text-gray-500 mb-1">⚡ ไฟฟ้า ${elecRate > 0 ? `(${formatNumber(elecRate)} ฿/หน่วย)` : ''}</div>
+                                        <div class="bg-gray-50 rounded px-3 py-2 ${noElecReading ? 'border border-orange-300' : ''}">
+                                            <span class="text-gray-700">${formatNumber(prevElec)} → <strong class="text-blue-700">${formatNumber(currElec)}</strong></span>
+                                            <div class="text-xs text-gray-500 mt-0.5">
+                                                ใช้ ${formatNumber(usedElec)} หน่วย
+                                                ${elecRate > 0 ? `× ${formatNumber(elecRate)} = <strong class="text-blue-700">${formatNumber(elecAmt)} ฿</strong>` : ''}
+                                            </div>
+                                        </div>
                                     </div>
                                     `}
                                     ${isFlatWater ? `
                                     <div>
-                                        <label class="block text-blue-700 font-medium mb-1">💧 เหมาจ่าย (฿)</label>
-                                        <input type="number" class="w-full px-2 py-1 border-2 border-blue-300 rounded text-sm bg-blue-50 text-blue-800 font-bold" 
-                                               value="${waterFlatRate}" disabled>
+                                        <div class="text-blue-700 font-medium mb-1">💧 เหมาจ่าย</div>
+                                        <div class="bg-blue-50 text-blue-800 font-bold rounded px-3 py-2 text-sm">
+                                            ${formatNumber(waterFlatRate)} ฿
+                                        </div>
                                     </div>
                                     ` : `
                                     <div>
-                                        <label class="block text-gray-500 mb-1">💧 น้ำ: ${item.prev_water_meter} →</label>
-                                        <input type="number" step="0.01" class="js-water-curr w-full px-2 py-1 border border-gray-300 rounded text-sm" 
-                                               value="${item.prev_water_meter}" data-contract-id="${item.contract_id}">
+                                        <div class="text-gray-500 mb-1">💧 น้ำ ${waterRate > 0 ? `(${formatNumber(waterRate)} ฿/หน่วย)` : ''}</div>
+                                        <div class="bg-gray-50 rounded px-3 py-2 ${noWaterReading ? 'border border-orange-300' : ''}">
+                                            <span class="text-gray-700">${formatNumber(prevWater)} → <strong class="text-blue-700">${formatNumber(currWater)}</strong></span>
+                                            <div class="text-xs text-gray-500 mt-0.5">
+                                                ใช้ ${formatNumber(usedWater)} หน่วย
+                                                ${waterRate > 0 ? `× ${formatNumber(waterRate)} = <strong class="text-blue-700">${formatNumber(waterAmt)} ฿</strong>` : ''}
+                                            </div>
+                                        </div>
                                     </div>
                                     `}
                                 </div>
                                 <div class="text-right text-sm mt-2">
                                     <span class="text-gray-500">รวม:</span>
                                     <span class="js-room-total font-bold text-blue-700" data-contract-id="${item.contract_id}">
-                                        ${formatNumber(initialTotal)} ฿
+                                        ${formatNumber(total)} ฿
                                     </span>
                                 </div>
                                 `}
@@ -1272,23 +1163,9 @@
         listEl.querySelectorAll('.js-floor-toggle').forEach(cb => {
             cb.addEventListener('change', onFloorToggle);
         });
-        listEl.querySelectorAll('.js-elec-curr, .js-water-curr').forEach(inp => {
-            inp.addEventListener('input', recalcBillingRoom);
-        });
-
-        ['generateElecRate', 'generateWaterRate'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) {
-                el.oninput = () => { recalcAllBilling(); };
-            }
-        });
 
         updateFloorToggles();
-        recalcAllBilling();
         updateBillingSummary();
-
-        // ⭐ v11: auto โหลดมิเตอร์ให้เลยหลัง render
-        setTimeout(() => { autoFillPreviewMeters(); }, 100);
     }
 
     function onRoomCheckChange(e) {
@@ -1302,7 +1179,6 @@
     function onFloorToggle(e) {
         const floor = Number(e.target.getAttribute('data-floor'));
         const checked = e.target.checked;
-        
         billingPreviewData.forEach(item => {
             if (getFloor(item.room_number) === floor && !item.has_invoice) {
                 const cb = document.querySelector(`.js-room-checkbox[data-contract-id="${item.contract_id}"]`);
@@ -1313,80 +1189,25 @@
                 }
             }
         });
-        
         updateBillingSummary();
     }
 
     function updateFloorToggles() {
-        const floorToggles = document.querySelectorAll('.js-floor-toggle');
-        floorToggles.forEach(toggle => {
+        document.querySelectorAll('.js-floor-toggle').forEach(toggle => {
             const floor = Number(toggle.getAttribute('data-floor'));
             const floorRooms = billingPreviewData.filter(x => getFloor(x.room_number) === floor && !x.has_invoice);
             const checkedCount = floorRooms.filter(x => billingSelected.has(String(x.contract_id))).length;
-            
-            if (checkedCount === 0) {
-                toggle.checked = false;
-                toggle.indeterminate = false;
-            } else if (checkedCount === floorRooms.length) {
-                toggle.checked = true;
-                toggle.indeterminate = false;
-            } else {
-                toggle.checked = false;
-                toggle.indeterminate = true;
-            }
+            if (checkedCount === 0) { toggle.checked = false; toggle.indeterminate = false; }
+            else if (checkedCount === floorRooms.length) { toggle.checked = true; toggle.indeterminate = false; }
+            else { toggle.checked = false; toggle.indeterminate = true; }
         });
-    }
-
-    function recalcBillingRoom(e) {
-        const contractId = e.target.getAttribute('data-contract-id');
-        const item = billingPreviewData.find(x => String(x.contract_id) === String(contractId));
-        if (!item) return;
-
-        const elecRate = parseFloat(document.getElementById('generateElecRate').value) || 0;
-        const waterRate = parseFloat(document.getElementById('generateWaterRate').value) || 0;
-
-        let elecAmt = 0;
-        const isFlatElec = String(item.elec_charge_type || '').toUpperCase() === 'FLAT_RATE';
-        if (isFlatElec) {
-            elecAmt = parseFloat(item.elec_flat_rate) || 0;
-        } else {
-            const elecInput = document.querySelector(`.js-elec-curr[data-contract-id="${contractId}"]`);
-            const curr = parseFloat(elecInput?.value) || 0;
-            elecAmt = Math.max(curr - item.prev_elec_meter, 0) * elecRate;
-        }
-
-        let waterAmt = 0;
-        const isFlatWater = String(item.water_charge_type || '').toUpperCase() === 'FLAT_RATE';
-        if (isFlatWater) {
-            waterAmt = parseFloat(item.water_flat_rate) || 0;
-        } else {
-            const waterInput = document.querySelector(`.js-water-curr[data-contract-id="${contractId}"]`);
-            const curr = parseFloat(waterInput?.value) || 0;
-            waterAmt = Math.max(curr - item.prev_water_meter, 0) * waterRate;
-        }
-
-        const total = (parseFloat(item.rent_price) || 0) + elecAmt + waterAmt;
-
-        const totalEl = document.querySelector(`.js-room-total[data-contract-id="${contractId}"]`);
-        if (totalEl) totalEl.innerText = formatNumber(total) + ' ฿';
-    }
-
-    function recalcAllBilling() {
-        document.querySelectorAll('.js-elec-curr, .js-water-curr').forEach(inp => {
-            recalcBillingRoom({ target: inp });
-        });
-        updateBillingSummary();
     }
 
     function updateBillingSummary() {
         const checkedBoxes = document.querySelectorAll('.js-room-checkbox:checked:not(:disabled)');
         const count = checkedBoxes.length;
         const el = document.getElementById('billingSummary');
-        
-        if (count === 0) {
-            el.innerText = 'ยังไม่ได้เลือกห้อง';
-            return;
-        }
+        if (count === 0) { el.innerText = 'ยังไม่ได้เลือกห้อง'; return; }
 
         let totalSum = 0;
         checkedBoxes.forEach(cb => {
@@ -1397,10 +1218,12 @@
                 if (match) totalSum += parseInt(match[0].replace(/,/g, '')) || 0;
             }
         });
-
         el.innerText = `เลือก ${count} ห้อง • รวม ${formatNumber(totalSum)} ฿`;
     }
 
+    // ==========================================
+    // 14. Confirm Generate (ใช้ค่าจาก DB)
+    // ==========================================
     async function confirmGenerateMonthly() {
         const btn = document.getElementById('generateMonthlyBtn');
         const btnText = document.getElementById('generateMonthlyBtnText');
@@ -1409,17 +1232,12 @@
         const billingMonth = document.getElementById('generateMonth').value;
         const issueDate = document.getElementById('generateIssueDate').value;
         const dueDate = document.getElementById('generateDueDate').value;
-        const elecRate = parseFloat(document.getElementById('generateElecRate').value) || 0;
-        const waterRate = parseFloat(document.getElementById('generateWaterRate').value) || 0;
 
         if (!billingMonth) return showNotification('⚠️ กรุณาเลือกเดือน', 'error');
         if (!issueDate || !dueDate) return showNotification('⚠️ กรุณาเลือกวันที่', 'error');
 
         const checkedBoxes = document.querySelectorAll('.js-room-checkbox:checked:not(:disabled)');
-        if (checkedBoxes.length === 0) {
-            showNotification('⚠️ กรุณาเลือกอย่างน้อย 1 ห้อง', 'error');
-            return;
-        }
+        if (checkedBoxes.length === 0) { showNotification('⚠️ กรุณาเลือกอย่างน้อย 1 ห้อง', 'error'); return; }
 
         const rooms = [];
         checkedBoxes.forEach(cb => {
@@ -1427,13 +1245,17 @@
             const item = billingPreviewData.find(x => String(x.contract_id) === String(cid));
             if (!item) return;
 
-            const elecInput = document.querySelector(`.js-elec-curr[data-contract-id="${cid}"]`);
-            const waterInput = document.querySelector(`.js-water-curr[data-contract-id="${cid}"]`);
+            const prevElec = _pickNum(item, ['prev_elec_meter', 'elec_prev', 'prev_elec'], 0);
+            const prevWater = _pickNum(item, ['prev_water_meter', 'water_prev', 'prev_water'], 0);
+            const currElec = _pickNum(item, ['curr_elec_meter', 'elec_curr', 'curr_elec'], prevElec);
+            const currWater = _pickNum(item, ['curr_water_meter', 'water_curr', 'curr_water'], prevWater);
             
             rooms.push({
                 contract_id: parseInt(cid),
-                elec_curr: parseFloat(elecInput?.value) || 0,
-                water_curr: parseFloat(waterInput?.value) || 0
+                elec_prev: prevElec,
+                elec_curr: currElec,
+                water_prev: prevWater,
+                water_curr: currWater
             });
         });
 
@@ -1444,13 +1266,10 @@
 
         try {
             const processedBy = localStorage.getItem('admin_username') || 'admin';
-
             const payload = {
                 p_billing_month: billingMonth,
                 p_issue_date: issueDate,
                 p_due_date: dueDate,
-                p_elec_rate: elecRate,
-                p_water_rate: waterRate,
                 p_rooms: rooms,
                 p_created_by: processedBy
             };
@@ -1474,9 +1293,7 @@
                     <p class="text-xs text-green-700">ข้าม: <strong>${data.skipped_count || 0}</strong> รายการ</p>
                 `;
                 resultEl.classList.remove('hidden');
-
                 showNotification(`✅ สร้างบิล ${data.created_count || 0} รายการ`, 'success');
-
                 setTimeout(() => {
                     closeGenerateMonthlyModal();
                     const mf = document.getElementById('monthFilter');
@@ -1489,7 +1306,7 @@
         } catch (err) {
             console.error('❌ generate failed:', err);
             resultEl.className = 'bg-red-50 border border-red-200 rounded-lg p-3 text-sm mt-3';
-            resultEl.innerHTML = `<p class="text-red-700">❌ ${err.message}</p>`;
+            resultEl.innerHTML = `<p class="text-red-700">❌ ${escapeHtml(err.message)}</p>`;
             resultEl.classList.remove('hidden');
         } finally {
             btn.disabled = false;
@@ -1498,7 +1315,7 @@
     }
 
     // ==========================================
-    // 14. Filters
+    // 15. Filters
     // ==========================================
     function setupFilters() {
         const statusFilter = document.getElementById('statusFilter');
@@ -1513,16 +1330,12 @@
                 window._invoiceSearchTimer = setTimeout(renderInvoices, 200);
             });
         }
-
-        // ⭐ v11: เปลี่ยนเดือน → โหลดมิเตอร์ใหม่
         const bm = document.getElementById('billingMonth');
-        if (bm) {
-            bm.addEventListener('change', () => autoFillMeterFromAPI());
-        }
+        if (bm) bm.addEventListener('change', () => autoFillMeterFromAPI());
     }
 
     // ==========================================
-    // 15. Export
+    // 16. Export
     // ==========================================
     window.openAddInvoiceModal = openAddInvoiceModal;
     window.openEditInvoiceModal = openEditInvoiceModal;
@@ -1536,14 +1349,13 @@
     window.closeGenerateMonthlyModal = closeGenerateMonthlyModal;
     window.loadBillingPreview = loadBillingPreview;
     window.confirmGenerateMonthly = confirmGenerateMonthly;
-    window.autoFillPreviewMeters = autoFillPreviewMeters;
     window.reloadMeterData = autoFillMeterFromAPI;
 
     // ==========================================
-    // 16. Init
+    // 17. Init
     // ==========================================
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('🚀 invoices.js v11 เริ่มทำงาน (ดึงมิเตอร์อัตโนมัติ)');
+        console.log('🚀 invoices.js v12 เริ่มทำงาน (read-only meters)');
         setTimeout(() => { loadInvoices(); }, 300);
 
         const form = document.getElementById('invoiceForm');
@@ -1570,7 +1382,7 @@
             }
         }, 1000);
 
-        console.log('✅ invoices.js v11 โหลดสำเร็จ');
+        console.log('✅ invoices.js v12 โหลดสำเร็จ');
     });
 
 })();
