@@ -1,6 +1,9 @@
 /* ==========================================
- * transfer.js - แจ้งย้ายห้อง (v5.1)
- * ⭐ v5.1: Fix deleteTransfer ทนกับ response ว่างเปล่า
+ * transfer.js - แจ้งย้ายห้อง (v6)
+ * ⭐ v6:
+ *   - Modal ยืนยันก่อนอนุมัติ
+ *   - เช็คบิลค้างของสัญญาเดิม (block ถ้ามี)
+ *   - แสดงวันครบสัญญาเดิม
  * ========================================== */
 (function() {
     'use strict';
@@ -12,6 +15,7 @@
     let roomsList = [];
     let lastBuildingId = '';
     let isLoading = false;
+    let pendingApproveId = null;
 
     const showNotification = window.showNotification;
     const escapeHtml = window.escapeHtml;
@@ -21,7 +25,7 @@
     const getCurrentBuildingName = window.getCurrentBuildingName;
 
     // ==========================================
-    // Helper
+    // Helpers
     // ==========================================
     function normalizeStatus(status) {
         if (status === null || status === undefined) return '';
@@ -37,6 +41,10 @@
 
     function isRoomAvailable(status) {
         return normalizeStatus(status) === 'AVAILABLE';
+    }
+
+    function isPaidValue(v) {
+        return v === true || v === 'true' || v === 1 || v === '1';
     }
 
     function extractResult(raw) {
@@ -137,14 +145,8 @@
 
         let filtered = allTransfers.filter(t => {
             const tStatus = String(t.status || '').toUpperCase();
-            
-            // Filter building
-            if (buildingId && Number(t.building_id) !== Number(buildingId)) return false;
-            
-            // Filter status
+            if (buildingId && t.building_id && Number(t.building_id) !== Number(buildingId)) return false;
             if (statusFilter && tStatus !== statusFilter) return false;
-            
-            // Search
             if (searchQuery) {
                 const name = String(t.tenant_name || '').toLowerCase();
                 const from = String(t.from_room_number || '').toLowerCase();
@@ -172,7 +174,6 @@
             const tStatus = String(t.status || '').toUpperCase();
             const isPending = tStatus === 'PENDING';
             
-            // ⭐ ปุ่ม action ตาม status
             let actionButtons = '';
             if (isPending) {
                 actionButtons = `
@@ -204,7 +205,7 @@
         });
 
         tbody.querySelectorAll('.js-approve').forEach(btn => {
-            btn.addEventListener('click', function() { approveTransfer(parseInt(this.getAttribute('data-approve-id'))); });
+            btn.addEventListener('click', function() { openApproveModal(parseInt(this.getAttribute('data-approve-id'))); });
         });
         tbody.querySelectorAll('.js-cancel').forEach(btn => {
             btn.addEventListener('click', function() { cancelTransfer(parseInt(this.getAttribute('data-cancel-id'))); });
@@ -422,10 +423,149 @@
     }
 
     // ==========================================
-    // 6. Approve
+    // ⭐ 6. Approve — เปิด Modal ยืนยัน + เช็คบิล
     // ==========================================
-    async function approveTransfer(requestId) {
-        if (!confirm('✅ ยืนยันการอนุมัติย้ายห้อง?\n\nระบบจะ:\n• ปิดสัญญาเดิม\n• สร้างสัญญาใหม่\n• อัปเดตสถานะห้อง')) return;
+    async function openApproveModal(requestId) {
+        const t = allTransfers.find(x => Number(x.id) === Number(requestId));
+        if (!t) { showNotification('⚠️ ไม่พบข้อมูล', 'error'); return; }
+
+        pendingApproveId = requestId;
+
+        // เตรียม modal
+        const modal = document.getElementById('approveModal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+
+        // แสดงข้อมูลพื้นฐาน
+        document.getElementById('approveTransferNo').innerText = t.transfer_no || `#${t.id}`;
+        document.getElementById('approveTenantName').innerText = t.tenant_name || '-';
+        document.getElementById('approveFromRoom').innerText = t.from_room_number || '-';
+        document.getElementById('approveToRoom').innerText = t.to_room_number || '-';
+        document.getElementById('approveContractEnd').innerText = '⏳ กำลังโหลด...';
+
+        const billBox = document.getElementById('approveBillCheck');
+        billBox.innerHTML = '<div class="bg-gray-50 rounded-lg p-4 text-center text-gray-500 text-sm">⏳ กำลังตรวจสอบบิลค้างชำระ...</div>';
+
+        const confirmBtn = document.getElementById('approveConfirmBtn');
+        confirmBtn.disabled = true;
+        document.getElementById('approveConfirmBtnText').innerText = '⏳ กำลังตรวจสอบ...';
+
+        // โหลดข้อมูล
+        try {
+            const buildingId = getCurrentBuildingId();
+            const [contractsRes, invoicesRes] = await Promise.all([
+                fetch(`${API_BASE}/contracts?building_id=${buildingId}&_t=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).catch(() => []),
+                fetch(`${API_BASE}/invoices?building_id=${buildingId}&_t=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).catch(() => [])
+            ]);
+
+            const contractArr = toArray(contractsRes).filter(c => c.is_deleted !== true && c.is_deleted !== 'true');
+            const invoiceArr = toArray(invoicesRes).filter(i => i.is_deleted !== true && i.is_deleted !== 'true');
+
+            // หาสัญญาเดิม (ACTIVE + tenant match + room match)
+            const oldContract = contractArr.find(c =>
+                Number(c.tenant_id) === Number(t.tenant_id) &&
+                String(c.status || '').toUpperCase() === 'ACTIVE'
+            );
+
+            // แสดงวันครบสัญญา
+            if (oldContract && oldContract.end_date) {
+                document.getElementById('approveContractEnd').innerText = formatDateLong(oldContract.end_date);
+                document.getElementById('approveContractEnd').classList.add('text-blue-700', 'font-bold');
+            } else if (oldContract) {
+                document.getElementById('approveContractEnd').innerText = '(ไม่ระบุ)';
+            } else {
+                document.getElementById('approveContractEnd').innerText = '⚠️ ไม่พบสัญญา ACTIVE';
+            }
+
+            // หาบิลค้าง (filter by contract_id)
+            let unpaidBills = [];
+            if (oldContract) {
+                unpaidBills = invoiceArr.filter(inv =>
+                    Number(inv.contract_id) === Number(oldContract.contract_id) &&
+                    !isPaidValue(inv.is_paid)
+                );
+            }
+
+            // Render check result
+            if (!oldContract) {
+                billBox.innerHTML = `
+                    <div class="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-4">
+                        <p class="font-bold text-yellow-800 mb-1">⚠️ ไม่พบสัญญา ACTIVE</p>
+                        <p class="text-xs text-yellow-700">ไม่สามารถอนุมัติได้ กรุณาตรวจสอบข้อมูลสัญญาก่อน</p>
+                    </div>
+                `;
+                document.getElementById('approveConfirmBtnText').innerText = '❌ ไม่สามารถอนุมัติ';
+                confirmBtn.disabled = true;
+            } else if (unpaidBills.length > 0) {
+                const totalUnpaid = unpaidBills.reduce((s, inv) => s + (parseFloat(inv.total_amount) || 0), 0);
+                const billsHtml = unpaidBills.slice(0, 5).map(inv => `
+                    <div class="flex justify-between text-xs py-1 border-b border-red-200 last:border-0">
+                        <span>${escapeHtml(inv.vol_no || '-')} • ${escapeHtml(inv.billing_month || '-')}</span>
+                        <span class="font-bold text-red-700">${formatNumber(inv.total_amount)} ฿</span>
+                    </div>
+                `).join('');
+
+                billBox.innerHTML = `
+                    <div class="bg-red-50 border-2 border-red-300 rounded-lg p-4">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-2xl">⛔</span>
+                            <div>
+                                <p class="font-bold text-red-800">พบบิลค้างชำระ ${unpaidBills.length} รายการ</p>
+                                <p class="text-xs text-red-600">ยอดรวม <strong>${formatNumber(totalUnpaid)} ฿</strong> — ต้องเคลียร์ก่อนอนุมัติ</p>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded p-2 mt-2 mb-3">
+                            ${billsHtml}
+                            ${unpaidBills.length > 5 ? `<p class="text-xs text-gray-500 text-center pt-1">...และอีก ${unpaidBills.length - 5} รายการ</p>` : ''}
+                        </div>
+                        <a href="payments.html" class="block text-center bg-red-600 hover:bg-red-700 text-white font-medium py-2 rounded-lg transition text-sm">
+                            💲 ไปที่หน้าตรวจสอบการชำระเงิน
+                        </a>
+                    </div>
+                `;
+                confirmBtn.disabled = true;
+                document.getElementById('approveConfirmBtnText').innerText = '❌ ต้องเคลียร์บิลก่อน';
+            } else {
+                billBox.innerHTML = `
+                    <div class="bg-green-50 border-2 border-green-300 rounded-lg p-4 flex items-center gap-3">
+                        <span class="text-2xl">✅</span>
+                        <div>
+                            <p class="font-bold text-green-800">เคลียร์บิลครบแล้ว</p>
+                            <p class="text-xs text-green-700">ไม่มีบิลค้างชำระ สามารถอนุมัติได้ทันที</p>
+                        </div>
+                    </div>
+                `;
+                confirmBtn.disabled = false;
+                document.getElementById('approveConfirmBtnText').innerText = '✅ ยืนยันอนุมัติ';
+            }
+        } catch (err) {
+            console.error('❌ ตรวจสอบล้มเหลว:', err);
+            billBox.innerHTML = `
+                <div class="bg-red-50 border-2 border-red-300 rounded-lg p-4">
+                    <p class="font-bold text-red-800">❌ ตรวจสอบไม่สำเร็จ</p>
+                    <p class="text-xs text-red-700">${escapeHtml(err.message)}</p>
+                </div>
+            `;
+            confirmBtn.disabled = true;
+            document.getElementById('approveConfirmBtnText').innerText = '❌ ลองใหม่';
+        }
+    }
+
+    function closeApproveModal() {
+        const modal = document.getElementById('approveModal');
+        if (!modal) return;
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        pendingApproveId = null;
+    }
+
+    async function confirmApprove() {
+        if (!pendingApproveId) return;
+
+        const btn = document.getElementById('approveConfirmBtn');
+        const btnText = document.getElementById('approveConfirmBtnText');
+        btn.disabled = true;
+        btnText.innerText = '⏳ กำลังอนุมัติ...';
 
         const processedBy = localStorage.getItem('admin_username') || 'admin';
 
@@ -433,13 +573,14 @@
             const res = await fetch(`${API_BASE}/transfers-approve`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ request_id: requestId, approved_by: processedBy })
+                body: JSON.stringify({ request_id: pendingApproveId, approved_by: processedBy })
             });
             const text = await res.text();
             const raw = text ? JSON.parse(text) : null;
             const result = extractResult(raw);
 
             if (res.ok && result.success === true) {
+                closeApproveModal();
                 showNotification('✅ อนุมัติย้ายห้องสำเร็จ', 'success');
                 setTimeout(() => loadTransfers(), 500);
             } else {
@@ -448,6 +589,8 @@
         } catch (err) {
             console.error('❌ approve failed:', err);
             showNotification('❌ ' + err.message, 'error');
+            btn.disabled = false;
+            btnText.innerText = '✅ ยืนยันอนุมัติ';
         }
     }
 
@@ -533,7 +676,7 @@
     }
 
     // ==========================================
-    // 9. Delete (⭐ แก้ให้ทนกับ response ว่างเปล่า)
+    // 9. Delete
     // ==========================================
     async function deleteTransfer(id) {
         if (!confirm('⚠️ ลบรายการย้ายห้องนี้?\n\n(ประวัติจะยังอยู่ในฐานข้อมูล)')) return;
@@ -546,7 +689,6 @@
             });
             const text = await res.text();
 
-            // ⭐ ถ้า response ว่างเปล่า หรือ 200 OK → ถือว่าสำเร็จ
             if (res.ok && (!text || text.trim() === '' || text === '[]')) {
                 await new Promise(r => setTimeout(r, 500));
                 await loadTransfers();
@@ -554,7 +696,6 @@
                 return;
             }
 
-            // ⭐ ถ้ามี response → parse JSON
             let raw = null;
             try { raw = text ? JSON.parse(text) : null; } catch(_) {}
             const result = extractResult(raw);
@@ -575,7 +716,7 @@
     // 10. Init
     // ==========================================
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('🚀 transfer.js v5.1 เริ่มทำงาน');
+        console.log('🚀 transfer.js v6 เริ่มทำงาน (approve modal + check bills)');
         setTimeout(() => loadTransfers(), 300);
 
         document.getElementById('transferForm').addEventListener('submit', saveTransfer);
@@ -587,6 +728,8 @@
             clearTimeout(window._trTimer);
             window._trTimer = setTimeout(renderTransfers, 200);
         });
+
+        document.getElementById('approveConfirmBtn').addEventListener('click', confirmApprove);
 
         window.addEventListener('buildingChanged', () => loadTransfers());
 
@@ -602,8 +745,9 @@
         window.openCreateModal = openCreateModal;
         window.closeCreateModal = closeCreateModal;
         window.closeViewModal = closeViewModal;
+        window.closeApproveModal = closeApproveModal;
         window.deleteTransfer = deleteTransfer;
-        window.approveTransfer = approveTransfer;
+        window.openApproveModal = openApproveModal;
         window.cancelTransfer = cancelTransfer;
         window.loadTransfers = loadTransfers;
     });
