@@ -1,10 +1,9 @@
 /* ==========================================
- * move-out.js - แจ้งย้ายออก (v6.2)
- * ⭐ v6.2:
- *   - ดึงมิเตอร์ตามเดือนที่ย้ายออก (ไม่ใช่ initial ของสัญญา)
- *   - Fix View Modal error
- *   - Auto-fill rate จาก meters-preview
- *   - Modal Approve + เช็คบิลค้าง
+ * move-out.js - แจ้งย้ายออก (v6.3)
+ * ⭐ v6.3:
+ *   - เพิ่มช่อง "ค่าเช่าเดือนสุดท้าย" (auto-fill + editable)
+ *   - ดึงบิลค้างจาก DB → แสดงใน sumOutstanding
+ *   - บวกทั้ง 2 เข้า net calculation
  * ========================================== */
 (function() {
     'use strict';
@@ -26,13 +25,9 @@
     const getCurrentBuildingId = window.getCurrentBuildingId;
     const getCurrentBuildingName = window.getCurrentBuildingName;
 
-    function normalizeStatus(s) {
-        return String(s || '').trim().toUpperCase();
-    }
+    function normalizeStatus(s) { return String(s || '').trim().toUpperCase(); }
 
-    function isPaidValue(v) {
-        return v === true || v === 'true' || v === 1 || v === '1';
-    }
+    function isPaidValue(v) { return v === true || v === 'true' || v === 1 || v === '1'; }
 
     function extractResult(raw) {
         if (!raw) return { success: false, message: 'Response ว่างเปล่า' };
@@ -81,11 +76,8 @@
 
     function getReasonLabel(type, note) {
         const labels = {
-            'END_RENTAL': '🏁 เลิกเช่า',
-            'MOVE_LOCATION': '📍 ย้ายที่อยู่',
-            'JOB_CHANGE': '💼 เปลี่ยนงาน',
-            'PERSONAL': '👤 เหตุผลส่วนตัว',
-            'OTHER': '📌 อื่นๆ'
+            'END_RENTAL': '🏁 เลิกเช่า', 'MOVE_LOCATION': '📍 ย้ายที่อยู่',
+            'JOB_CHANGE': '💼 เปลี่ยนงาน', 'PERSONAL': '👤 เหตุผลส่วนตัว', 'OTHER': '📌 อื่นๆ'
         };
         const base = labels[type] || type || '-';
         return note ? `${base} — ${note}` : base;
@@ -104,7 +96,7 @@
     }
 
     // ==========================================
-    // ⭐ ดึง rate ของเดือนปัจจุบัน
+    // ⭐ Rates + Meter + Bills
     // ==========================================
     async function fetchCurrentRates(buildingId) {
         try {
@@ -125,9 +117,6 @@
         }
     }
 
-    // ==========================================
-    // ⭐ ดึงมิเตอร์ตามเดือน (จาก room_id)
-    // ==========================================
     async function fetchMeterForMonth(roomId, monthStr) {
         try {
             const buildingId = getCurrentBuildingId();
@@ -137,17 +126,36 @@
             const arr = toArray(data);
             const target = arr.find(m => Number(m.room_id) === Number(roomId));
             if (!target) return null;
-            console.log('📊 Meter ที่ดึงมา:', monthStr, target.room_number, {
-                prev_elec: target.prev_elec,
-                curr_elec: target.curr_elec,
-                prev_water: target.prev_water,
-                curr_water: target.curr_water,
+            console.log('📊 Meter:', monthStr, target.room_number, {
+                prev_elec: target.prev_elec, curr_elec: target.curr_elec,
+                prev_water: target.prev_water, curr_water: target.curr_water,
                 has_reading: target.has_reading
             });
             return target;
         } catch (e) {
             console.warn('⚠️ โหลดมิเตอร์ไม่สำเร็จ:', e);
             return null;
+        }
+    }
+
+    // ⭐ ดึงบิลค้างของสัญญานี้
+    async function fetchOutstandingBills(contractId) {
+        try {
+            const buildingId = getCurrentBuildingId();
+            const url = `${API_BASE}/invoices?building_id=${buildingId}&_t=${Date.now()}`;
+            const res = await fetch(url, { cache: 'no-store' });
+            const data = await res.json();
+            const arr = toArray(data).filter(i => i.is_deleted !== true && i.is_deleted !== 'true');
+            const unpaid = arr.filter(inv =>
+                Number(inv.contract_id) === Number(contractId) &&
+                !isPaidValue(inv.is_paid)
+            );
+            const total = unpaid.reduce((s, inv) => s + (parseFloat(inv.total_amount) || 0), 0);
+            console.log('💰 บิลค้าง:', unpaid.length, 'รายการ รวม', total);
+            return { count: unpaid.length, total, bills: unpaid };
+        } catch (e) {
+            console.warn('⚠️ โหลดบิลค้างไม่สำเร็จ:', e);
+            return { count: 0, total: 0, bills: [] };
         }
     }
 
@@ -228,13 +236,9 @@
             const returnAmt = parseFloat(m.deposit_return) || 0;
             const shortageAmt = parseFloat(m.deposit_shortage) || 0;
 
-            if (isPending) {
-                netHtml = `<span class="text-gray-500 font-medium">ประมาณ ${formatNumber(returnAmt)} ฿</span>`;
-            } else if (shortageAmt > 0) {
-                netHtml = `<span class="text-red-600 font-bold">ติด ${formatNumber(shortageAmt)} ฿</span>`;
-            } else {
-                netHtml = `<span class="text-green-600 font-bold">คืน ${formatNumber(returnAmt)} ฿</span>`;
-            }
+            if (isPending) netHtml = `<span class="text-gray-500 font-medium">ประมาณ ${formatNumber(returnAmt)} ฿</span>`;
+            else if (shortageAmt > 0) netHtml = `<span class="text-red-600 font-bold">ติด ${formatNumber(shortageAmt)} ฿</span>`;
+            else netHtml = `<span class="text-green-600 font-bold">คืน ${formatNumber(returnAmt)} ฿</span>`;
 
             let actionButtons = '';
             if (isPending) {
@@ -312,7 +316,6 @@
             );
             
             tenants = tenants.filter(t => !existingContractIds.has(Number(t.contract_id)));
-
             tenantsList = tenants;
 
             tenantSelect.innerHTML = '<option value="">-- เลือกผู้เช่า --</option>';
@@ -403,24 +406,20 @@
             const finalLabelEl = document.getElementById(kind === 'elec' ? 'finalElecLabel' : 'finalWaterLabel');
 
             if (initialEl) initialEl.value = 0;
-            if (finalEl) {
-                finalEl.value = 0;
-                finalEl.placeholder = '';
-            }
+            if (finalEl) { finalEl.value = 0; finalEl.placeholder = ''; }
             if (priceEl) {
-                priceEl.value = '';
-                priceEl.disabled = false;
-                priceEl.readOnly = false;
+                priceEl.value = ''; priceEl.disabled = false; priceEl.readOnly = false;
                 priceEl.classList.remove('bg-yellow-100', 'border-yellow-400', 'font-bold', 'text-yellow-800', 'bg-gray-100', 'text-gray-700');
             }
-            if (badgeEl) {
-                badgeEl.innerText = '';
-                badgeEl.className = 'text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600';
-            }
+            if (badgeEl) { badgeEl.innerText = ''; badgeEl.className = 'text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600'; }
             if (priceLabelEl) priceLabelEl.innerHTML = 'ราคา/หน่วย (฿)';
             if (finalLabelEl) finalLabelEl.innerText = 'เลขครั้งสุดท้าย';
             if (finalEl) finalEl.disabled = false;
         });
+
+        // ⭐ reset ค่าเช่าด้วย
+        const rentEl = document.getElementById('finalRent');
+        if (rentEl) rentEl.value = 0;
     }
 
     function applyChargeTypeUI(kind, type, flatRate) {
@@ -434,32 +433,26 @@
         const isFlat = type === 'FLAT_RATE' && flatRate > 0;
 
         if (isFlat) {
-            initialEl.disabled = true;
-            finalEl.disabled = true;
+            initialEl.disabled = true; finalEl.disabled = true;
             initialEl.classList.add('bg-gray-200', 'text-gray-400');
             finalEl.classList.add('bg-gray-200', 'text-gray-400');
             priceEl.value = flatRate;
-            priceEl.disabled = true;
-            priceEl.readOnly = true;
+            priceEl.disabled = true; priceEl.readOnly = true;
             priceEl.classList.add('bg-yellow-100', 'border-yellow-400', 'font-bold', 'text-yellow-800');
             priceEl.classList.remove('bg-gray-100', 'text-gray-700');
             priceLabelEl.innerHTML = `💰 ราคาเหมาจ่าย (฿)<span class="ml-1 text-yellow-700 text-xs">(จากสัญญา)</span>`;
             finalLabelEl.innerText = 'มิเตอร์ครั้งสุดท้าย';
             badgeEl.innerText = '💼 เหมาจ่าย';
             badgeEl.className = 'text-xs px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 border border-yellow-300';
-            initialEl.value = 0;
-            finalEl.value = 0;
+            initialEl.value = 0; finalEl.value = 0;
         } else {
-            initialEl.disabled = false;
-            finalEl.disabled = false;
+            initialEl.disabled = false; finalEl.disabled = false;
             initialEl.classList.remove('bg-gray-200', 'text-gray-400');
             finalEl.classList.remove('bg-gray-200', 'text-gray-400');
 
             const defaultRate = kind === 'elec' ? currentRates.elec : currentRates.water;
             priceEl.value = defaultRate > 0 ? defaultRate : '';
-
-            priceEl.disabled = false;
-            priceEl.readOnly = true;
+            priceEl.disabled = false; priceEl.readOnly = true;
             priceEl.classList.remove('bg-yellow-100', 'border-yellow-400', 'font-bold', 'text-yellow-800');
             priceEl.classList.add('bg-gray-100', 'text-gray-700');
 
@@ -502,7 +495,9 @@
             elec_type: opt.dataset.elecType,
             water_type: opt.dataset.waterType,
             elec_flat: parseFloat(opt.dataset.elecFlat) || 0,
-            water_flat: parseFloat(opt.dataset.waterFlat) || 0
+            water_flat: parseFloat(opt.dataset.waterFlat) || 0,
+            outstanding_bills: 0,
+            outstanding_count: 0
         };
 
         document.getElementById('infoRoom').innerText = selectedTenant.room_number || '-';
@@ -510,17 +505,31 @@
         document.getElementById('infoRent').innerText = formatNumber(selectedTenant.rent_price) + ' ฿';
         document.getElementById('infoDeposit').innerText = formatNumber(selectedTenant.deposit) + ' ฿';
 
+        // ⭐ Auto-fill ค่าเช่าเดือนสุดท้าย
+        const rentEl = document.getElementById('finalRent');
+        if (rentEl) rentEl.value = selectedTenant.rent_price || 0;
+
         applyChargeTypeUI('elec', selectedTenant.elec_type, selectedTenant.elec_flat);
         applyChargeTypeUI('water', selectedTenant.water_type, selectedTenant.water_flat);
 
         infoBox.classList.remove('hidden');
 
-        // ⭐ โหลดมิเตอร์ตามเดือนที่ย้ายออก
-        await loadMeterByMonth();
+        // ⭐ โหลดมิเตอร์ + บิลค้าง พร้อมกัน
+        await Promise.all([
+            loadMeterByMonth(),
+            fetchOutstandingBills(selectedTenant.contract_id).then(bills => {
+                if (selectedTenant) {
+                    selectedTenant.outstanding_bills = bills.total;
+                    selectedTenant.outstanding_count = bills.count;
+                }
+            })
+        ]);
+
+        recalcSummary();
     }
 
     // ==========================================
-    // ⭐ 6.5 โหลดมิเตอร์ตามเดือนที่ย้ายออก
+    // 6.5 โหลดมิเตอร์ตามเดือน
     // ==========================================
     async function loadMeterByMonth() {
         if (!selectedTenant || !selectedTenant.room_id) return;
@@ -542,34 +551,22 @@
         if (meter) {
             if (!isFlatElec) {
                 initElecEl.value = parseFloat(meter.prev_elec) || 0;
-                if (meter.has_reading) {
-                    finalElecEl.value = parseFloat(meter.curr_elec) || 0;
-                    finalElecEl.placeholder = '';
-                } else {
-                    finalElecEl.value = '';
-                    finalElecEl.placeholder = 'กรอกครั้งสุดท้าย';
-                }
+                if (meter.has_reading) { finalElecEl.value = parseFloat(meter.curr_elec) || 0; finalElecEl.placeholder = ''; }
+                else { finalElecEl.value = ''; finalElecEl.placeholder = 'กรอกครั้งสุดท้าย'; }
             }
             if (!isFlatWater) {
                 initWaterEl.value = parseFloat(meter.prev_water) || 0;
-                if (meter.has_reading) {
-                    finalWaterEl.value = parseFloat(meter.curr_water) || 0;
-                    finalWaterEl.placeholder = '';
-                } else {
-                    finalWaterEl.value = '';
-                    finalWaterEl.placeholder = 'กรอกครั้งสุดท้าย';
-                }
+                if (meter.has_reading) { finalWaterEl.value = parseFloat(meter.curr_water) || 0; finalWaterEl.placeholder = ''; }
+                else { finalWaterEl.value = ''; finalWaterEl.placeholder = 'กรอกครั้งสุดท้าย'; }
             }
         } else {
             if (!isFlatElec) {
                 initElecEl.value = selectedTenant.initial_elec || 0;
-                finalElecEl.value = '';
-                finalElecEl.placeholder = 'กรอกครั้งสุดท้าย';
+                finalElecEl.value = ''; finalElecEl.placeholder = 'กรอกครั้งสุดท้าย';
             }
             if (!isFlatWater) {
                 initWaterEl.value = selectedTenant.initial_water || 0;
-                finalWaterEl.value = '';
-                finalWaterEl.placeholder = 'กรอกครั้งสุดท้าย';
+                finalWaterEl.value = ''; finalWaterEl.placeholder = 'กรอกครั้งสุดท้าย';
             }
         }
 
@@ -599,6 +596,7 @@
             document.getElementById('sumDeposit').innerText = '0 ฿';
             document.getElementById('sumElec').innerText = '-0 ฿';
             document.getElementById('sumWater').innerText = '-0 ฿';
+            document.getElementById('sumRent').innerText = '-0 ฿';
             document.getElementById('sumOutstanding').innerText = '-0 ฿';
             document.getElementById('sumDamage').innerText = '-0 ฿';
             document.getElementById('sumOther').innerText = '-0 ฿';
@@ -611,9 +609,8 @@
 
         let elecAmount = 0;
         const elecIsFlat = selectedTenant.elec_type === 'FLAT_RATE' && selectedTenant.elec_flat > 0;
-        if (elecIsFlat) {
-            elecAmount = selectedTenant.elec_flat;
-        } else {
+        if (elecIsFlat) elecAmount = selectedTenant.elec_flat;
+        else {
             const init = parseFloat(document.getElementById('initialElec').value) || 0;
             const final = parseFloat(document.getElementById('finalElec').value) || 0;
             const price = parseFloat(document.getElementById('elecUnitPrice').value) || 0;
@@ -622,14 +619,19 @@
 
         let waterAmount = 0;
         const waterIsFlat = selectedTenant.water_type === 'FLAT_RATE' && selectedTenant.water_flat > 0;
-        if (waterIsFlat) {
-            waterAmount = selectedTenant.water_flat;
-        } else {
+        if (waterIsFlat) waterAmount = selectedTenant.water_flat;
+        else {
             const init = parseFloat(document.getElementById('initialWater').value) || 0;
             const final = parseFloat(document.getElementById('finalWater').value) || 0;
             const price = parseFloat(document.getElementById('waterUnitPrice').value) || 0;
             waterAmount = Math.max(final - init, 0) * price;
         }
+
+        // ⭐ ค่าเช่าเดือนสุดท้าย
+        const rentAmount = parseFloat(document.getElementById('finalRent')?.value) || 0;
+
+        // ⭐ บิลค้างจาก DB
+        const outstandingAmt = selectedTenant.outstanding_bills || 0;
 
         const damageFee = parseFloat(document.getElementById('damageFee').value) || 0;
         const otherDed = parseFloat(document.getElementById('otherDeduction').value) || 0;
@@ -638,9 +640,9 @@
         let net = 0;
 
         if (earlyCheck.isEarly) {
-            net = -(elecAmount + waterAmount + damageFee + otherDed);
+            net = -(elecAmount + waterAmount + rentAmount + outstandingAmt + damageFee + otherDed);
         } else {
-            net = deposit - (elecAmount + waterAmount + damageFee + otherDed);
+            net = deposit - (elecAmount + waterAmount + rentAmount + outstandingAmt + damageFee + otherDed);
         }
 
         const elecLabel = elecIsFlat ? `${formatNumber(elecAmount)} ฿ (เหมาจ่าย)` : `${formatNumber(elecAmount)} ฿`;
@@ -652,6 +654,18 @@
         document.getElementById('sumDeposit').innerText = formatNumber(deposit) + ' ฿';
         document.getElementById('sumElec').innerText = '-' + formatNumber(elecAmount) + ' ฿';
         document.getElementById('sumWater').innerText = '-' + formatNumber(waterAmount) + ' ฿';
+        document.getElementById('sumRent').innerText = '-' + formatNumber(rentAmount) + ' ฿';
+
+        // ⭐ แสดง outstanding + จำนวนบิล
+        const outEl = document.getElementById('sumOutstanding');
+        if (selectedTenant.outstanding_count > 0) {
+            outEl.innerText = `-${formatNumber(outstandingAmt)} ฿ (${selectedTenant.outstanding_count} บิล)`;
+            outEl.classList.add('font-bold');
+        } else {
+            outEl.innerText = '-0 ฿';
+            outEl.classList.remove('font-bold');
+        }
+
         document.getElementById('sumDamage').innerText = '-' + formatNumber(damageFee) + ' ฿';
         document.getElementById('sumOther').innerText = '-' + formatNumber(otherDed) + ' ฿';
 
@@ -697,6 +711,7 @@
         const finalWater = parseFloat(document.getElementById('finalWater').value) || 0;
         const elecPrice = parseFloat(document.getElementById('elecUnitPrice').value) || 0;
         const waterPrice = parseFloat(document.getElementById('waterUnitPrice').value) || 0;
+        const finalRent = parseFloat(document.getElementById('finalRent')?.value) || 0;
         const damageFee = parseFloat(document.getElementById('damageFee').value) || 0;
         const damageNote = document.getElementById('damageNote').value.trim();
         const otherDed = parseFloat(document.getElementById('otherDeduction').value) || 0;
@@ -714,9 +729,7 @@
         const earlyCheck = checkEarlyTermination();
 
         let confirmMsg = '⚠️ ยืนยันการแจ้งย้ายออก?\n\nระบบจะบันทึกคำร้อง (รออนุมัติ)\nยังไม่ย้ายจริงจนกว่าจะกดอนุมัติ';
-        if (earlyCheck.isEarly) {
-            confirmMsg += `\n\n🚨 เตือน: ออกก่อนครบขั้นต่ำ (อีก ${earlyCheck.daysLeft} วัน)`;
-        }
+        if (earlyCheck.isEarly) confirmMsg += `\n\n🚨 เตือน: ออกก่อนครบขั้นต่ำ (อีก ${earlyCheck.daysLeft} วัน)`;
 
         if (!confirm(confirmMsg)) return;
 
@@ -735,6 +748,8 @@
                 final_water_meter: finalWater,
                 elec_unit_price: elecPrice,
                 water_unit_price: waterPrice,
+                final_rent_amount: finalRent,           // ⭐ ใหม่
+                outstanding_debt: selectedTenant.outstanding_bills || 0,  // ⭐ ใหม่
                 damage_fee: damageFee,
                 damage_note: damageNote || null,
                 other_deduction: otherDed,
@@ -769,7 +784,7 @@
     }
 
     // ==========================================
-    // 9. Approve
+    // 9. Approve — Modal + เช็คบิล
     // ==========================================
     async function openApproveModal(requestId) {
         const m = allMoveOuts.find(x => Number(x.id) === Number(requestId));
@@ -937,11 +952,7 @@
             const res = await fetch(`${API_BASE}/move-outs-cancel`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    request_id: requestId, 
-                    reason: reason || null,
-                    cancelled_by: processedBy 
-                })
+                body: JSON.stringify({ request_id: requestId, reason: reason || null, cancelled_by: processedBy })
             });
             const text = await res.text();
             const raw = text ? JSON.parse(text) : null;
@@ -969,7 +980,6 @@
         document.getElementById('viewMoveOutNo').innerText = m.move_out_no || '-';
         document.getElementById('viewMoveOutDate').innerText = `ย้ายออก: ${formatDateLong(m.move_out_date)}`;
         
-        // ⭐ safe set status badge
         const statusEl = document.getElementById('viewStatusBadge');
         if (statusEl) statusEl.innerHTML = getStatusBadge(m.status);
         
@@ -1063,19 +1073,18 @@
     // 13. Init
     // ==========================================
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('🚀 move-out.js v6.2 เริ่มทำงาน (meter by month)');
+        console.log('🚀 move-out.js v6.3 เริ่มทำงาน (rent + bills)');
 
         setTimeout(() => loadMoveOuts(), 300);
 
         document.getElementById('moveOutForm').addEventListener('submit', saveMoveOut);
         document.getElementById('tenantSelect').addEventListener('change', onTenantChange);
 
-        ['finalElec', 'finalWater', 'elecUnitPrice', 'waterUnitPrice', 'damageFee', 'otherDeduction'].forEach(id => {
+        ['finalElec', 'finalWater', 'elecUnitPrice', 'waterUnitPrice', 'finalRent', 'damageFee', 'otherDeduction'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.addEventListener('input', recalcSummary);
         });
 
-        // ⭐ เปลี่ยนวันย้ายออก → โหลดมิเตอร์ใหม่
         document.getElementById('moveOutDate').addEventListener('change', () => {
             recalcSummary();
             loadMeterByMonth();
@@ -1110,7 +1119,7 @@
         window.cancelMoveOut = cancelMoveOut;
         window.loadMoveOuts = loadMoveOuts;
 
-        console.log('✅ move-out.js v6.2 โหลดสำเร็จ');
+        console.log('✅ move-out.js v6.3 โหลดสำเร็จ');
     });
 
 })();
