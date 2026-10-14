@@ -1,13 +1,12 @@
 /* ==========================================
- * invoices.js - จัดการใบแจ้งหนี้ (v12)
- * ⭐ v12: Billing Preview ดึงมิเตอร์จาก DB (read-only)
- *         ไม่มี rate input แล้ว — ดึงจาก meters
+ * invoices.js - จัดการใบแจ้งหนี้ (v13)
+ * ⭐ v13: Billing Preview ดึง rate จาก meters-preview (แก้ปัญหา rate=0)
  * ========================================== */
 (function() {
     'use strict';
 
-    const API_BASE = 'http://localhost:5678/webhook';
-    const METERS_API_PATH = 'meters';
+    const API_BASE = 'https://n8n_mirot.minmark.xyz/webhook';
+    const METERS_API_PATH = 'meters-preview';
 
     let allInvoices = [];
     let allContracts = [];
@@ -109,7 +108,6 @@
         return Math.floor(num / 100);
     }
 
-    // ⭐ เลือกค่าจาก object หลายชื่อ fallback
     function _pickNum(obj, keys, fallback) {
         if (!obj) return fallback;
         for (const k of keys) {
@@ -127,7 +125,7 @@
     async function fetchMeterFromAPI(contractId, billingMonth) {
         const token = ++_meterFetchToken;
         try {
-            const url = `${API_BASE}/${METERS_API_PATH}?contract_id=${encodeURIComponent(contractId)}&billing_month=${encodeURIComponent(billingMonth)}&_t=${Date.now()}`;
+            const url = `${API_BASE}/meters?contract_id=${encodeURIComponent(contractId)}&billing_month=${encodeURIComponent(billingMonth)}&_t=${Date.now()}`;
             const res = await fetch(url, { cache: 'no-store' });
             if (!res.ok) return { ok: false, reason: `HTTP ${res.status}` };
             const text = await res.text();
@@ -140,10 +138,6 @@
                     return Number(m.contract_id) === Number(contractId);
                 }
                 return true;
-            });
-            arr = arr.filter(m => {
-                const mm = m.billing_month || m.meter_month || m.month || m.reading_month;
-                return !mm || String(mm) === String(billingMonth);
             });
             if (arr.length === 0) return { ok: false, reason: 'not_found' };
 
@@ -277,7 +271,7 @@
     }
 
     // ==========================================
-    // 1. โหลด Invoices
+    // Load Invoices
     // ==========================================
     async function loadInvoices() {
         const tbody = document.getElementById('invoiceTableBody');
@@ -316,7 +310,7 @@
     }
 
     // ==========================================
-    // 2. Render Invoices
+    // Render Invoices
     // ==========================================
     function renderInvoices() {
         const tbody = document.getElementById('invoiceTableBody');
@@ -404,7 +398,7 @@
     }
 
     // ==========================================
-    // 3. Search Contract
+    // Search Contract
     // ==========================================
     async function loadContractsForSearch() {
         try {
@@ -514,7 +508,7 @@
     }
 
     // ==========================================
-    // 4. คำนวณยอดรวม (Manual Form)
+    // คำนวณยอดรวม (Manual Form)
     // ==========================================
     function recalcTotal() {
         const roomPrice = parseFloat(document.getElementById('roomPrice').value) || 0;
@@ -561,7 +555,7 @@
     }
 
     // ==========================================
-    // 5. Due Date Status
+    // Due Date Status
     // ==========================================
     function setupDueDateStatus() {
         const dueDate = document.getElementById('dueDate');
@@ -591,7 +585,7 @@
     }
 
     // ==========================================
-    // 6. Fine Reason
+    // Fine Reason
     // ==========================================
     function setupFineReason() {
         const fine = document.getElementById('fine');
@@ -615,7 +609,7 @@
     }
 
     // ==========================================
-    // 7. Modal Add
+    // Modal Add
     // ==========================================
     function openAddInvoiceModal() {
         if (!getCurrentBuildingId()) { showNotification('⚠️ กรุณาเลือกอาคารก่อน', 'error'); return; }
@@ -652,7 +646,7 @@
     }
 
     // ==========================================
-    // 8. Modal Edit
+    // Modal Edit
     // ==========================================
     async function openEditInvoiceModal(invoiceId) {
         const inv = allInvoices.find(i => Number(i.invoice_id) === Number(invoiceId));
@@ -733,7 +727,7 @@
     }
 
     // ==========================================
-    // 9. View Modal
+    // View Modal
     // ==========================================
     function openViewInvoiceModal(invoiceId) {
         const inv = allInvoices.find(i => Number(i.invoice_id) === Number(invoiceId));
@@ -809,7 +803,7 @@
     }
 
     // ==========================================
-    // 10. Save (Manual Form)
+    // Save (Manual Form)
     // ==========================================
     async function saveInvoiceData(e) {
         if (e) e.preventDefault();
@@ -902,7 +896,7 @@
     }
 
     // ==========================================
-    // 11. Delete
+    // Delete
     // ==========================================
     function openDeleteInvoiceModal(invoiceId, tenantName) {
         deletingInvoiceId = invoiceId;
@@ -947,7 +941,7 @@
     }
 
     // ==========================================
-    // 12. Billing Preview (Modal)
+    // Billing Preview (Modal)
     // ==========================================
     function openGenerateMonthlyModal() {
         if (!getCurrentBuildingId()) { showNotification('⚠️ กรุณาเลือกอาคารก่อน', 'error'); return; }
@@ -980,6 +974,24 @@
         billingSelected = new Set();
     }
 
+    // ⭐⭐⭐ v13: โหลด rate จาก meters-preview แล้ว inject
+    async function fetchRateForMonth(buildingId, billingMonth) {
+        try {
+            const url = `${API_BASE}/${METERS_API_PATH}?building_id=${buildingId}&reading_month=${billingMonth}&_t=${Date.now()}`;
+            const res = await fetch(url, { cache: 'no-store' });
+            const data = await res.json();
+            const arr = toArray(data);
+            const firstRoom = arr[0] || {};
+            const elecRate = _pickNum(firstRoom, ['elec_rate', 'elec_unit_price'], 0);
+            const waterRate = _pickNum(firstRoom, ['water_rate', 'water_unit_price'], 0);
+            console.log('💰 Rate จาก meters-preview:', { elecRate, waterRate });
+            return { elecRate, waterRate };
+        } catch (e) {
+            console.warn('⚠️ โหลด rate ไม่สำเร็จ:', e);
+            return { elecRate: 0, waterRate: 0 };
+        }
+    }
+
     async function loadBillingPreview() {
         const buildingId = getCurrentBuildingId();
         const billingMonth = document.getElementById('generateMonth').value;
@@ -1000,7 +1012,14 @@
                 else rooms = [];
             }
 
-            billingPreviewData = rooms;
+            // ⭐ v13: ดึง rate แล้ว inject
+            const { elecRate, waterRate } = await fetchRateForMonth(buildingId, billingMonth);
+
+            billingPreviewData = rooms.map(item => ({
+                ...item,
+                elec_rate: item.elec_rate ?? elecRate,
+                water_rate: item.water_rate ?? waterRate
+            }));
 
             billingSelected = new Set();
             billingPreviewData.forEach(item => {
@@ -1015,7 +1034,7 @@
     }
 
     // ==========================================
-    // ⭐ 13. Render Billing List (v12 — READ-ONLY from DB)
+    // Render Billing List
     // ==========================================
     function renderBillingList() {
         const listEl = document.getElementById('billingRoomList');
@@ -1058,13 +1077,11 @@
                 const waterFlatRate = parseFloat(item.water_flat_rate) || 0;
                 const rentPrice = parseFloat(item.rent_price) || 0;
                 
-                // ⭐ ค่ามิเตอร์ — อ่านจาก DB (preview response)
                 const prevElec = _pickNum(item, ['prev_elec_meter', 'elec_prev', 'prev_elec'], 0);
                 const prevWater = _pickNum(item, ['prev_water_meter', 'water_prev', 'prev_water'], 0);
                 const currElec = _pickNum(item, ['curr_elec_meter', 'elec_curr', 'curr_elec'], prevElec);
                 const currWater = _pickNum(item, ['curr_water_meter', 'water_curr', 'curr_water'], prevWater);
                 
-                // ⭐ rate อ่านจาก preview (ถ้าไม่มี ใช้ 0)
                 const elecRate = _pickNum(item, ['elec_rate', 'elec_unit_price'], 0);
                 const waterRate = _pickNum(item, ['water_rate', 'water_unit_price'], 0);
                 
@@ -1074,12 +1091,6 @@
                 const elecAmt = isFlatElec ? elecFlatRate : usedElec * elecRate;
                 const waterAmt = isFlatWater ? waterFlatRate : usedWater * waterRate;
                 const total = rentPrice + elecAmt + waterAmt;
-                
-                // ⭐ flag ว่ายังไม่จดมิเตอร์
-                const noElecReading = !isFlatElec && currElec === prevElec && prevElec > 0;
-                const noWaterReading = !isFlatWater && currWater === prevWater && prevWater > 0;
-                const hasMeterData = _pickNum(item, ['curr_elec_meter', 'elec_curr', 'curr_elec'], null) !== null
-                                  || _pickNum(item, ['curr_water_meter', 'water_curr', 'curr_water'], null) !== null;
                 
                 const disabled = isBilled ? 'opacity-50' : '';
                 
@@ -1094,7 +1105,6 @@
                                     <span class="font-bold text-blue-600">ห้อง ${escapeHtml(item.room_number)}</span>
                                     <span class="text-sm text-gray-700">${escapeHtml(item.tenant_name)}</span>
                                     ${isBilled ? '<span class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">⛔ มีบิลแล้ว</span>' : ''}
-                                    ${!isBilled && !hasMeterData ? '<span class="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">⚠️ ยังไม่จดมิเตอร์</span>' : ''}
                                 </div>
                                 <div class="text-xs text-gray-500 mb-2">ค่าเช่า ${formatNumber(rentPrice)} ฿/เดือน</div>
                                 
@@ -1110,7 +1120,7 @@
                                     ` : `
                                     <div>
                                         <div class="text-gray-500 mb-1">⚡ ไฟฟ้า ${elecRate > 0 ? `(${formatNumber(elecRate)} ฿/หน่วย)` : ''}</div>
-                                        <div class="bg-gray-50 rounded px-3 py-2 ${noElecReading ? 'border border-orange-300' : ''}">
+                                        <div class="bg-gray-50 rounded px-3 py-2">
                                             <span class="text-gray-700">${formatNumber(prevElec)} → <strong class="text-blue-700">${formatNumber(currElec)}</strong></span>
                                             <div class="text-xs text-gray-500 mt-0.5">
                                                 ใช้ ${formatNumber(usedElec)} หน่วย
@@ -1129,7 +1139,7 @@
                                     ` : `
                                     <div>
                                         <div class="text-gray-500 mb-1">💧 น้ำ ${waterRate > 0 ? `(${formatNumber(waterRate)} ฿/หน่วย)` : ''}</div>
-                                        <div class="bg-gray-50 rounded px-3 py-2 ${noWaterReading ? 'border border-orange-300' : ''}">
+                                        <div class="bg-gray-50 rounded px-3 py-2">
                                             <span class="text-gray-700">${formatNumber(prevWater)} → <strong class="text-blue-700">${formatNumber(currWater)}</strong></span>
                                             <div class="text-xs text-gray-500 mt-0.5">
                                                 ใช้ ${formatNumber(usedWater)} หน่วย
@@ -1222,7 +1232,7 @@
     }
 
     // ==========================================
-    // 14. Confirm Generate (ใช้ค่าจาก DB)
+    // Confirm Generate
     // ==========================================
     async function confirmGenerateMonthly() {
         const btn = document.getElementById('generateMonthlyBtn');
@@ -1249,13 +1259,17 @@
             const prevWater = _pickNum(item, ['prev_water_meter', 'water_prev', 'prev_water'], 0);
             const currElec = _pickNum(item, ['curr_elec_meter', 'elec_curr', 'curr_elec'], prevElec);
             const currWater = _pickNum(item, ['curr_water_meter', 'water_curr', 'curr_water'], prevWater);
+            const elecRate = _pickNum(item, ['elec_rate', 'elec_unit_price'], 0);
+            const waterRate = _pickNum(item, ['water_rate', 'water_unit_price'], 0);
             
             rooms.push({
                 contract_id: parseInt(cid),
                 elec_prev: prevElec,
                 elec_curr: currElec,
                 water_prev: prevWater,
-                water_curr: currWater
+                water_curr: currWater,
+                elec_rate: elecRate,
+                water_rate: waterRate
             });
         });
 
@@ -1315,7 +1329,7 @@
     }
 
     // ==========================================
-    // 15. Filters
+    // Filters
     // ==========================================
     function setupFilters() {
         const statusFilter = document.getElementById('statusFilter');
@@ -1335,7 +1349,7 @@
     }
 
     // ==========================================
-    // 16. Export
+    // Export
     // ==========================================
     window.openAddInvoiceModal = openAddInvoiceModal;
     window.openEditInvoiceModal = openEditInvoiceModal;
@@ -1352,10 +1366,10 @@
     window.reloadMeterData = autoFillMeterFromAPI;
 
     // ==========================================
-    // 17. Init
+    // Init
     // ==========================================
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('🚀 invoices.js v12 เริ่มทำงาน (read-only meters)');
+        console.log('🚀 invoices.js v13 เริ่มทำงาน (Billing Preview + rate)');
         setTimeout(() => { loadInvoices(); }, 300);
 
         const form = document.getElementById('invoiceForm');
@@ -1382,7 +1396,7 @@
             }
         }, 1000);
 
-        console.log('✅ invoices.js v12 โหลดสำเร็จ');
+        console.log('✅ invoices.js v13 โหลดสำเร็จ');
     });
 
 })();
