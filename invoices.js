@@ -1,6 +1,9 @@
 /* ==========================================
- * invoices.js - จัดการใบแจ้งหนี้ (v13)
- * ⭐ v13: Billing Preview ดึง rate จาก meters-preview (แก้ปัญหา rate=0)
+ * invoices.js - จัดการใบแจ้งหนี้ (v13.1)
+ * ⭐ v13.1: 
+ *   - fix syntax error (orphan code)
+ *   - fallback field: curr_elec, prev_elec, curr_water, prev_water
+ *   - Billing Preview ดึง rate จาก meters-preview
  * ========================================== */
 (function() {
     'use strict';
@@ -120,38 +123,23 @@
     }
 
     // ==========================================
-    // Meter Fetch (manual form)
+    // Meter Fetch (manual form) — ใช้ meters-preview
     // ==========================================
     async function fetchMeterFromAPI(contractId, billingMonth) {
-    const token = ++_meterFetchToken;
-    try {
-        const buildingId = getCurrentBuildingId();
-        
-        // ⭐ ใช้ meters-preview แทน (เพราะ /meters ไม่มี)
-        const url = `${API_BASE}/${METERS_API_PATH}?building_id=${buildingId}&reading_month=${billingMonth}&_t=${Date.now()}`;
-        const res = await fetch(url, { cache: 'no-store' });
-        if (!res.ok) return { ok: false, reason: `HTTP ${res.status}` };
-        const text = await res.text();
-        const parsed = text ? JSON.parse(text) : null;
-        if (token !== _meterFetchToken) return { ok: false, reason: 'stale' };
+        const token = ++_meterFetchToken;
+        try {
+            const buildingId = getCurrentBuildingId();
+            const url = `${API_BASE}/${METERS_API_PATH}?building_id=${buildingId}&reading_month=${billingMonth}&_t=${Date.now()}`;
+            const res = await fetch(url, { cache: 'no-store' });
+            if (!res.ok) return { ok: false, reason: `HTTP ${res.status}` };
+            const text = await res.text();
+            const parsed = text ? JSON.parse(text) : null;
+            if (token !== _meterFetchToken) return { ok: false, reason: 'stale' };
 
-        const arr = toArray(parsed);
-        // ⭐ filter contract_id ฝั่ง client
-        const target = arr.find(m => Number(m.contract_id) === Number(contractId));
-        if (!target) return { ok: false, reason: 'not_found' };
-        return { ok: true, meter: target };
-    } catch (e) {
-        return { ok: false, reason: e.message || 'fetch_error' };
-    }
-}
-            if (arr.length === 0) return { ok: false, reason: 'not_found' };
-
-            arr.sort((a, b) => {
-                const am = String(a.billing_month || a.meter_month || a.month || a.reading_month || '');
-                const bm = String(b.billing_month || b.meter_month || b.month || b.reading_month || '');
-                return bm.localeCompare(am);
-            });
-            return { ok: true, meter: arr[0] };
+            const arr = toArray(parsed);
+            const target = arr.find(m => Number(m.contract_id) === Number(contractId));
+            if (!target) return { ok: false, reason: 'not_found' };
+            return { ok: true, meter: target };
         } catch (e) {
             return { ok: false, reason: e.message || 'fetch_error' };
         }
@@ -189,8 +177,8 @@
             if (elecStatus) elecStatus.innerHTML = `<span class="${cls}">${escapeHtml(msg)}</span>`;
         } else {
             const m = res.meter;
-            const ec = _pickNum(m, ['elec_curr', 'elec_current', 'elec_meter', 'elec_reading', 'curr_elec_meter'], null);
-            const ep = _pickNum(m, ['elec_prev', 'elec_previous', 'elec_before', 'prev_elec_meter'], null);
+            const ec = _pickNum(m, ['curr_elec', 'elec_curr', 'elec_current', 'elec_meter', 'elec_reading', 'curr_elec_meter'], null);
+            const ep = _pickNum(m, ['prev_elec', 'elec_prev', 'elec_previous', 'elec_before', 'prev_elec_meter'], null);
             const rate = _pickNum(m, ['elec_rate', 'elec_unit_price'], null);
             if (ep !== null) document.getElementById('elecPrev').value = ep;
             if (ec !== null) document.getElementById('elecCurr').value = ec;
@@ -207,8 +195,8 @@
             if (waterStatus) waterStatus.innerHTML = `<span class="${cls}">${escapeHtml(msg)}</span>`;
         } else {
             const m = res.meter;
-            const wc = _pickNum(m, ['water_curr', 'water_current', 'water_meter', 'water_reading', 'curr_water_meter'], null);
-            const wp = _pickNum(m, ['water_prev', 'water_previous', 'water_before', 'prev_water_meter'], null);
+            const wc = _pickNum(m, ['curr_water', 'water_curr', 'water_current', 'water_meter', 'water_reading', 'curr_water_meter'], null);
+            const wp = _pickNum(m, ['prev_water', 'water_prev', 'water_previous', 'water_before', 'prev_water_meter'], null);
             const rate = _pickNum(m, ['water_rate', 'water_unit_price'], null);
             if (wp !== null) document.getElementById('waterPrev').value = wp;
             if (wc !== null) document.getElementById('waterCurr').value = wc;
@@ -979,7 +967,7 @@
         billingSelected = new Set();
     }
 
-    // ⭐⭐⭐ v13: โหลด rate จาก meters-preview แล้ว inject
+    // ⭐ โหลด rate จาก meters-preview แล้ว inject
     async function fetchRateForMonth(buildingId, billingMonth) {
         try {
             const url = `${API_BASE}/${METERS_API_PATH}?building_id=${buildingId}&reading_month=${billingMonth}&_t=${Date.now()}`;
@@ -1017,7 +1005,7 @@
                 else rooms = [];
             }
 
-            // ⭐ v13: ดึง rate แล้ว inject
+            // ⭐ ดึง rate แล้ว inject
             const { elecRate, waterRate } = await fetchRateForMonth(buildingId, billingMonth);
 
             billingPreviewData = rooms.map(item => ({
@@ -1082,10 +1070,10 @@
                 const waterFlatRate = parseFloat(item.water_flat_rate) || 0;
                 const rentPrice = parseFloat(item.rent_price) || 0;
                 
-                const prevElec = _pickNum(item, ['prev_elec_meter', 'elec_prev', 'prev_elec'], 0);
-                const prevWater = _pickNum(item, ['prev_water_meter', 'water_prev', 'prev_water'], 0);
-                const currElec = _pickNum(item, ['curr_elec_meter', 'elec_curr', 'curr_elec'], prevElec);
-                const currWater = _pickNum(item, ['curr_water_meter', 'water_curr', 'curr_water'], prevWater);
+                const prevElec = _pickNum(item, ['prev_elec', 'elec_prev', 'prev_elec_meter'], 0);
+                const prevWater = _pickNum(item, ['prev_water', 'water_prev', 'prev_water_meter'], 0);
+                const currElec = _pickNum(item, ['curr_elec', 'elec_curr', 'curr_elec_meter'], prevElec);
+                const currWater = _pickNum(item, ['curr_water', 'water_curr', 'curr_water_meter'], prevWater);
                 
                 const elecRate = _pickNum(item, ['elec_rate', 'elec_unit_price'], 0);
                 const waterRate = _pickNum(item, ['water_rate', 'water_unit_price'], 0);
@@ -1260,10 +1248,10 @@
             const item = billingPreviewData.find(x => String(x.contract_id) === String(cid));
             if (!item) return;
 
-            const prevElec = _pickNum(item, ['prev_elec_meter', 'elec_prev', 'prev_elec'], 0);
-            const prevWater = _pickNum(item, ['prev_water_meter', 'water_prev', 'prev_water'], 0);
-            const currElec = _pickNum(item, ['curr_elec_meter', 'elec_curr', 'curr_elec'], prevElec);
-            const currWater = _pickNum(item, ['curr_water_meter', 'water_curr', 'curr_water'], prevWater);
+            const prevElec = _pickNum(item, ['prev_elec', 'elec_prev', 'prev_elec_meter'], 0);
+            const prevWater = _pickNum(item, ['prev_water', 'water_prev', 'prev_water_meter'], 0);
+            const currElec = _pickNum(item, ['curr_elec', 'elec_curr', 'curr_elec_meter'], prevElec);
+            const currWater = _pickNum(item, ['curr_water', 'water_curr', 'curr_water_meter'], prevWater);
             const elecRate = _pickNum(item, ['elec_rate', 'elec_unit_price'], 0);
             const waterRate = _pickNum(item, ['water_rate', 'water_unit_price'], 0);
             
@@ -1374,7 +1362,7 @@
     // Init
     // ==========================================
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('🚀 invoices.js v13 เริ่มทำงาน (Billing Preview + rate)');
+        console.log('🚀 invoices.js v13.1 เริ่มทำงาน (Billing Preview + rate)');
         setTimeout(() => { loadInvoices(); }, 300);
 
         const form = document.getElementById('invoiceForm');
@@ -1401,7 +1389,7 @@
             }
         }, 1000);
 
-        console.log('✅ invoices.js v13 โหลดสำเร็จ');
+        console.log('✅ invoices.js v13.1 โหลดสำเร็จ');
     });
 
 })();
