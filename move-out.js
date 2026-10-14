@@ -138,7 +138,6 @@
         }
     }
 
-    // ⭐ ดึงบิลค้างของสัญญานี้
     async function fetchOutstandingBills(contractId) {
         try {
             const buildingId = getCurrentBuildingId();
@@ -417,7 +416,6 @@
             if (finalEl) finalEl.disabled = false;
         });
 
-        // ⭐ reset ค่าเช่าด้วย
         const rentEl = document.getElementById('finalRent');
         if (rentEl) rentEl.value = 0;
     }
@@ -748,8 +746,8 @@
                 final_water_meter: finalWater,
                 elec_unit_price: elecPrice,
                 water_unit_price: waterPrice,
-                final_rent_amount: finalRent,           // ⭐ ใหม่
-                outstanding_debt: selectedTenant.outstanding_bills || 0,  // ⭐ ใหม่
+                final_rent_amount: finalRent,
+                outstanding_debt: selectedTenant.outstanding_bills || 0,
                 damage_fee: damageFee,
                 damage_note: damageNote || null,
                 other_deduction: otherDed,
@@ -784,7 +782,7 @@
     }
 
     // ==========================================
-    // 9. Approve — Modal + เช็คบิล
+    // 9. Approve
     // ==========================================
     async function openApproveModal(requestId) {
         const m = allMoveOuts.find(x => Number(x.id) === Number(requestId));
@@ -992,6 +990,11 @@
         document.getElementById('viewDeposit').innerText = formatNumber(m.deposit_amount) + ' ฿';
         document.getElementById('viewElec').innerText = '-' + formatNumber(m.elec_final_amount) + ' ฿';
         document.getElementById('viewWater').innerText = '-' + formatNumber(m.water_final_amount) + ' ฿';
+        
+        // ⭐ ค่าเช่าเดือนสุดท้าย
+        const rentEl = document.getElementById('viewRent');
+        if (rentEl) rentEl.innerText = '-' + formatNumber(m.final_rent_amount || 0) + ' ฿';
+        
         document.getElementById('viewOutstanding').innerText = '-' + formatNumber(m.outstanding_debt) + ' ฿';
         document.getElementById('viewDamage').innerText = '-' + formatNumber(m.damage_fee) + ' ฿';
         document.getElementById('viewOther').innerText = '-' + formatNumber(m.other_deduction) + ' ฿';
