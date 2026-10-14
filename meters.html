@@ -12,6 +12,11 @@
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
         .modal-animate { animation: fadeIn 0.2s ease-out; }
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
+        .meter-input-error { border-color: #ef4444 !important; background-color: #fef2f2 !important; }
+        .filter-btn-active { background-color: #2563eb !important; color: white !important; }
     </style>
 </head>
 <body class="bg-gray-50 flex h-screen overflow-hidden relative">
@@ -62,38 +67,114 @@
             </div>
         </header>
 
-        <div class="p-4 lg:p-8">
-            <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-3">
-                <div>
-                    <h3 class="text-lg font-bold text-gray-800">จดมิเตอร์น้ำ-ไฟรายเดือน</h3>
-                    <p class="text-sm text-gray-500">บันทึกเลขมิเตอร์ของทุกห้องในเดือนที่เลือก</p>
-                </div>
-                <div class="flex flex-wrap gap-2 w-full md:w-auto">
-                    <div class="flex items-center gap-2 bg-white border border-blue-300 rounded-lg px-3 py-2 shadow-sm min-w-[180px]">
+        <div class="p-4 lg:p-8 pb-32">
+            <!-- Header + Building -->
+            <div class="mb-4">
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-end gap-3 mb-4">
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-800">จดมิเตอร์น้ำ-ไฟรายเดือน</h3>
+                        <p class="text-sm text-gray-500">บันทึกเลขมิเตอร์ของทุกห้องในเดือนที่เลือก</p>
+                    </div>
+                    <div class="flex items-center gap-2 bg-white border border-blue-300 rounded-lg px-3 py-2 shadow-sm min-w-[200px]">
                         <span class="text-sm">🏢</span>
                         <select id="buildingSelector" class="bg-transparent text-sm font-semibold text-blue-700 outline-none cursor-pointer flex-1"><option value="">กำลังโหลด...</option></select>
                     </div>
-                    <input type="month" id="readingMonth" class="bg-white border border-blue-300 rounded-lg px-3 py-2 text-sm font-semibold text-blue-700 outline-none cursor-pointer">
-                    <button onclick="loadMeterReadings()" class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-lg shadow-sm flex items-center gap-2 transition">
-                        <span>🔄</span> โหลดข้อมูล
-                    </button>
+                </div>
+
+                <!-- Month Picker -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                    <div class="flex flex-wrap items-center gap-3">
+                        <button type="button" onclick="prevMonth()" title="เดือนก่อน" class="w-10 h-10 bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center justify-center transition font-bold text-gray-700">◀</button>
+                        <div class="text-center min-w-[150px]">
+                            <div class="text-xs text-gray-500">กำลังจดมิเตอร์เดือน</div>
+                            <div id="currentMonthLabel" class="text-lg font-bold text-blue-700">-</div>
+                        </div>
+                        <button type="button" onclick="nextMonth()" title="เดือนถัดไป" class="w-10 h-10 bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center justify-center transition font-bold text-gray-700">▶</button>
+
+                        <div class="h-8 w-px bg-gray-200 mx-1 hidden md:block"></div>
+
+                        <select id="monthSelect" class="px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-blue-500 bg-white cursor-pointer">
+                            <option value="1">มกราคม</option>
+                            <option value="2">กุมภาพันธ์</option>
+                            <option value="3">มีนาคม</option>
+                            <option value="4">เมษายน</option>
+                            <option value="5">พฤษภาคม</option>
+                            <option value="6">มิถุนายน</option>
+                            <option value="7">กรกฎาคม</option>
+                            <option value="8">สิงหาคม</option>
+                            <option value="9">กันยายน</option>
+                            <option value="10">ตุลาคม</option>
+                            <option value="11">พฤศจิกายน</option>
+                            <option value="12">ธันวาคม</option>
+                        </select>
+                        <select id="yearSelect" class="px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-blue-500 bg-white cursor-pointer"></select>
+
+                        <button type="button" onclick="loadMeterReadings()" class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-lg shadow-sm flex items-center gap-2 transition md:ml-auto">
+                            <span>🔄</span> โหลดข้อมูล
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 💰 Rate Section -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mt-4">
+                    <div class="flex items-center gap-2 mb-3">
+                        <span class="text-lg">💰</span>
+                        <span class="font-bold text-gray-800">อัตราค่ามิเตอร์เดือนนี้</span>
+                        <span class="text-xs text-gray-500">(ใช้คำนวณตอนออกบิล)</span>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs text-gray-600 mb-1">⚡ ราคาไฟ/หน่วย (฿) — ใช้กับห้อง per_unit</label>
+                            <input type="number" id="elecRateInput" step="0.01" min="0" value="0"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-600 mb-1">💧 ราคาน้ำ/หน่วย (฿) — ใช้กับห้อง per_unit</label>
+                            <input type="number" id="waterRateInput" step="0.01" min="0" value="0"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-400 mt-2">💡 ค่า rate จะถูกบันทึกไปพร้อมกับมิเตอร์ของเดือนนี้</p>
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-6">
+            <!-- Progress -->
+            <div id="meterProgressWrap" class="hidden bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-medium text-gray-700">📈 ความคืบหน้า</span>
+                    <span id="progressText" class="text-sm font-bold text-blue-700">0/0 ห้อง</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                    <div id="progressBar" class="bg-green-500 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- Filters -->
+            <div id="meterFilters" class="hidden bg-white rounded-xl shadow-sm border border-gray-100 p-3 mb-4 flex flex-wrap gap-2 items-center">
+                <div class="flex bg-gray-100 rounded-lg p-1">
+                    <button data-filter="all" class="js-filter-btn px-3 py-1.5 text-sm rounded-md font-medium transition text-gray-600">ทั้งหมด</button>
+                    <button data-filter="pending" class="js-filter-btn px-3 py-1.5 text-sm rounded-md font-medium transition text-gray-600">⏳ ยังไม่จด</button>
+                    <button data-filter="done" class="js-filter-btn px-3 py-1.5 text-sm rounded-md font-medium transition text-gray-600">✅ จดแล้ว</button>
+                </div>
+                <input type="text" id="searchRoom" placeholder="🔍 ค้นหาห้อง / ผู้เช่า..." class="flex-1 min-w-[180px] px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-blue-500">
+            </div>
+
+            <!-- Room list -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 lg:p-5">
                 <div id="meterRoomList" class="space-y-4">
                     <p class="text-center text-gray-400 py-8">กรุณาเลือกเดือนและกด "🔄 โหลดข้อมูล"</p>
                 </div>
             </div>
+        </div>
 
-            <div id="meterActionBar" class="hidden sticky bottom-4 bg-white rounded-xl shadow-lg border-2 border-blue-200 p-4 flex items-center justify-between gap-4">
-                <div class="text-sm">
-                    <p class="font-bold text-gray-800">📊 สรุป: <span id="meterSummary">0 ห้อง</span></p>
-                </div>
-                <button onclick="saveAllMeters()" id="saveMetersBtn" class="bg-green-600 hover:bg-green-700 text-white font-medium px-6 py-2.5 rounded-lg transition flex items-center gap-2">
-                    <span id="saveMetersBtnText">✅ บันทึกทั้งหมด</span>
-                </button>
+        <!-- Sticky action bar -->
+        <div id="meterActionBar" class="hidden fixed bottom-4 left-4 right-4 lg:left-72 lg:right-8 bg-white rounded-xl shadow-2xl border-2 border-blue-200 p-4 flex items-center justify-between gap-4 z-20">
+            <div class="text-sm min-w-0">
+                <p class="font-bold text-gray-800 truncate">📊 <span id="meterSummary">0 ห้อง</span></p>
             </div>
+            <button onclick="saveAllMeters()" id="saveMetersBtn" class="bg-green-600 hover:bg-green-700 text-white font-medium px-5 py-2.5 rounded-lg transition flex items-center gap-2 shadow-lg shrink-0">
+                <span id="saveMetersBtnText">✅ บันทึกทั้งหมด</span>
+            </button>
         </div>
     </main>
 
