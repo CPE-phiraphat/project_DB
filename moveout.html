@@ -163,7 +163,7 @@
                     </div>
                 </div>
 
-                <!-- ⭐ มิเตอร์ไฟฟ้า -->
+                <!-- มิเตอร์ไฟฟ้า -->
                 <div class="border-t border-gray-200 pt-4">
                     <h4 class="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
                         ⚡ มิเตอร์ไฟฟ้าครั้งสุดท้าย
@@ -186,7 +186,7 @@
                     <p class="text-xs text-gray-500 mt-2">ค่าไฟครั้งสุดท้าย: <span id="elecAmount" class="font-bold text-red-600">0 ฿</span></p>
                 </div>
 
-                <!-- ⭐ มิเตอร์น้ำ -->
+                <!-- มิเตอร์น้ำ -->
                 <div class="border-t border-gray-200 pt-4">
                     <h4 class="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
                         💧 มิเตอร์น้ำครั้งสุดท้าย
@@ -265,6 +265,57 @@
                     <button type="submit" id="saveBtn" class="flex-1 bg-red-600 hover:bg-red-700 text-white font-medium py-2.5 rounded-lg transition flex items-center justify-center gap-2"><span id="saveBtnText">✅ ยืนยันการย้ายออก</span></button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- ⭐ Modal: Approve Confirmation (ใหม่) -->
+    <div id="approveModal" class="fixed inset-0 bg-black/50 z-[60] hidden items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg modal-animate max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between p-5 border-b border-gray-200 sticky top-0 bg-gradient-to-r from-green-50 to-green-100 z-10">
+                <div class="flex items-center gap-3">
+                    <div class="w-14 h-14 bg-green-500 text-white rounded-full flex items-center justify-center text-2xl shadow-md">✅</div>
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-800">ยืนยันการอนุมัติย้ายออก</h3>
+                        <p class="text-xs text-gray-500" id="approveMoveOutNo">-</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeApproveModal()" class="p-2 text-gray-400 hover:bg-white/50 rounded-lg">✕</button>
+            </div>
+
+            <div class="p-5 space-y-4">
+                <!-- ข้อมูลหลัก -->
+                <div class="grid grid-cols-2 gap-3 bg-blue-50 rounded-lg p-4">
+                    <div>
+                        <p class="text-xs text-gray-500 mb-1">ห้อง</p>
+                        <p class="text-xl font-bold text-blue-700" id="approveRoom">-</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-500 mb-1">📅 วันครบสัญญา</p>
+                        <p class="text-sm font-medium text-gray-800" id="approveContractEnd">-</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-gray-50 rounded-lg p-3">
+                        <p class="text-xs text-gray-500 mb-1">ผู้เช่า</p>
+                        <p class="text-sm font-medium text-gray-800" id="approveTenantName">-</p>
+                    </div>
+                    <div class="bg-gray-50 rounded-lg p-3">
+                        <p class="text-xs text-gray-500 mb-1">💰 เงินประกัน</p>
+                        <p class="text-sm font-bold text-green-700" id="approveDeposit">-</p>
+                    </div>
+                </div>
+
+                <!-- ตรวจสอบบิล -->
+                <div id="approveBillCheck"></div>
+            </div>
+
+            <div class="p-5 border-t border-gray-200 flex gap-2 sticky bottom-0 bg-white">
+                <button type="button" onclick="closeApproveModal()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2.5 rounded-lg transition">ยกเลิก</button>
+                <button type="button" id="approveConfirmBtn" class="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2.5 rounded-lg transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <span id="approveConfirmBtnText">✅ ยืนยันอนุมัติ</span>
+                </button>
+            </div>
         </div>
     </div>
 
