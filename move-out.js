@@ -1,9 +1,10 @@
 /* ==========================================
- * move-out.js - แจ้งย้ายออก (v6)
- * ⭐ v6:
+ * move-out.js - แจ้งย้ายออก (v6.1)
+ * ⭐ v6.1:
  *   - Modal ยืนยันก่อนอนุมัติ
- *   - เช็คบิลค้างของสัญญาเดิม (block ถ้ามี)
+ *   - เช็คบิลค้างของสัญญาเดิม
  *   - แสดงวันครบสัญญาเดิม + เงินประกัน
+ *   - ⭐ Auto-fill rate จาก meters-preview (ไม่ต้องกรอกเอง)
  * ========================================== */
 (function() {
     'use strict';
@@ -16,6 +17,7 @@
     let isLoading = false;
     let selectedTenant = null;
     let pendingApproveId = null;
+    let currentRates = { elec: 0, water: 0 };
 
     const showNotification = window.showNotification;
     const escapeHtml = window.escapeHtml;
@@ -99,6 +101,28 @@
         };
         const cfg = badges[s] || badges['PENDING'];
         return `<span class="px-2.5 py-1 ${cfg.cls} rounded-full text-xs font-medium inline-block whitespace-nowrap">${cfg.icon} ${cfg.label}</span>`;
+    }
+
+    // ==========================================
+    // ⭐ ดึง rate ของเดือนนี้จาก meters-preview
+    // ==========================================
+    async function fetchCurrentRates(buildingId) {
+        try {
+            const now = new Date();
+            const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            const url = `${API_BASE}/meters-preview?building_id=${buildingId}&reading_month=${month}&_t=${Date.now()}`;
+            const res = await fetch(url, { cache: 'no-store' });
+            const data = await res.json();
+            const arr = toArray(data);
+            const first = arr[0] || {};
+            const elec = parseFloat(first.elec_rate) || 0;
+            const water = parseFloat(first.water_rate) || 0;
+            console.log('💰 Rates เดือนนี้:', { elec, water, month });
+            return { elec, water };
+        } catch (e) {
+            console.warn('⚠️ โหลด rate ไม่สำเร็จ:', e);
+            return { elec: 0, water: 0 };
+        }
     }
 
     // ==========================================
@@ -319,8 +343,12 @@
         modal.classList.remove('hidden');
         modal.classList.add('flex');
 
-        await loadMoveOuts();
-        await loadMoveOutData();
+        // ⭐ โหลด rates + ข้อมูล dropdown พร้อมกัน
+        await Promise.all([
+            loadMoveOuts(),
+            loadMoveOutData(),
+            fetchCurrentRates(getCurrentBuildingId()).then(r => { currentRates = r; })
+        ]);
     }
 
     function closeCreateModal() {
@@ -378,6 +406,7 @@
         const isFlat = type === 'FLAT_RATE' && flatRate > 0;
 
         if (isFlat) {
+            // เหมาจ่าย → disable + ใช้ค่าเหมา
             initialEl.disabled = true;
             finalEl.disabled = true;
             initialEl.classList.add('bg-gray-200', 'text-gray-400');
@@ -393,15 +422,25 @@
             initialEl.value = 0;
             finalEl.value = 0;
         } else {
+            // ⭐ ต่อหน่วย → auto-fill rate + readonly
             initialEl.disabled = false;
             finalEl.disabled = false;
             initialEl.classList.remove('bg-gray-200', 'text-gray-400');
             finalEl.classList.remove('bg-gray-200', 'text-gray-400');
+
+            const defaultRate = kind === 'elec' ? currentRates.elec : currentRates.water;
+            priceEl.value = defaultRate > 0 ? defaultRate : '';
+
+            // ⭐ Lock ไว้ — ห้ามแก้ (rate มาจากเมนูจดมิเตอร์)
             priceEl.disabled = false;
-            priceEl.readOnly = false;
+            priceEl.readOnly = true;
             priceEl.classList.remove('bg-yellow-100', 'border-yellow-400', 'font-bold', 'text-yellow-800');
-            priceEl.value = '';
-            priceLabelEl.innerHTML = `ราคา/หน่วย (฿)<span class="ml-1 text-gray-400 text-xs">(กรอกเอง)</span>`;
+            priceEl.classList.add('bg-gray-100', 'text-gray-700');
+
+            priceLabelEl.innerHTML = defaultRate > 0
+                ? `ราคา/หน่วย (฿)<span class="ml-1 text-blue-600 text-xs">(จากเมนูจดมิเตอร์)</span>`
+                : `ราคา/หน่วย (฿)<span class="ml-1 text-red-500 text-xs">(ยังไม่ตั้งค่า)</span>`;
+
             finalLabelEl.innerText = 'เลขครั้งสุดท้าย';
             badgeEl.innerText = '📊 ต่อหน่วย';
             badgeEl.className = 'text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-300';
@@ -650,7 +689,7 @@
     }
 
     // ==========================================
-    // ⭐ 9. Approve — เปิด Modal + เช็คบิล
+    // ⭐ 9. Approve — Modal + เช็คบิล
     // ==========================================
     async function openApproveModal(requestId) {
         const m = allMoveOuts.find(x => Number(x.id) === Number(requestId));
@@ -694,7 +733,6 @@
                 document.getElementById('approveContractEnd').innerText = '(ไม่ระบุ)';
             }
 
-            // หาบิลค้าง
             let unpaidBills = [];
             if (m.contract_id) {
                 unpaidBills = invoiceArr.filter(inv =>
@@ -941,7 +979,7 @@
     // 13. Init
     // ==========================================
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('🚀 move-out.js v6 เริ่มทำงาน (approve modal + check bills)');
+        console.log('🚀 move-out.js v6.1 เริ่มทำงาน (auto-rate)');
 
         setTimeout(() => loadMoveOuts(), 300);
 
@@ -984,7 +1022,7 @@
         window.cancelMoveOut = cancelMoveOut;
         window.loadMoveOuts = loadMoveOuts;
 
-        console.log('✅ move-out.js v6 โหลดสำเร็จ');
+        console.log('✅ move-out.js v6.1 โหลดสำเร็จ');
     });
 
 })();
