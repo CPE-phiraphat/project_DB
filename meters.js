@@ -1,8 +1,9 @@
 /* ==========================================
- * meters.js - จดมิเตอร์น้ำ-ไฟ (v4)
- * ⭐ v4: 
+ * meters.js - จดมิเตอร์น้ำ-ไฟ (v4.1)
+ * ⭐ v4.1:
+ *   - Fix: ห้องว่างบันทึกได้ (ใช้ data-room เป็น key)
  *   - กรอกทุกห้อง (รวมเหมาจ่าย) — จดเป็นประวัติ
- *   - Badge "เหมาจ่าย" แสดงข้าง label
+ *   - Badge "เหมาจ่าย" + label "(สัญญาเหมาจ่าย)"
  *   - Filter / Search / Progress bar
  *   - Rate section (ราคาไฟ/น้ำต่อหน่วย)
  *   - Draft autosave (localStorage)
@@ -81,7 +82,7 @@
     }
 
     // ==========================================
-    // Draft (localStorage)
+    // Draft (localStorage) — ใช้ room_id เป็น key
     // ==========================================
     function draftKey() {
         return `meter_draft_${getCurrentBuildingId()}_${getReadingMonth()}`;
@@ -93,15 +94,17 @@
                 _rates: { elec: rates.elec, water: rates.water }
             };
             document.querySelectorAll('.js-meter-input').forEach(inp => {
-                const cid = inp.getAttribute('data-contract');
+                const rid = inp.getAttribute('data-room');
+                if (!rid) return;
                 const type = inp.getAttribute('data-type');
-                if (!draft[cid]) draft[cid] = {};
-                draft[cid][type] = inp.value;
+                if (!draft[rid]) draft[rid] = {};
+                draft[rid][type] = inp.value;
             });
             document.querySelectorAll('.js-meter-note').forEach(inp => {
-                const cid = inp.getAttribute('data-contract');
-                if (!draft[cid]) draft[cid] = {};
-                draft[cid].note = inp.value;
+                const rid = inp.getAttribute('data-room');
+                if (!rid) return;
+                if (!draft[rid]) draft[rid] = {};
+                draft[rid].note = inp.value;
             });
             localStorage.setItem(draftKey(), JSON.stringify(draft));
         } catch (e) { /* ignore */ }
@@ -130,13 +133,13 @@
             if (wr) wr.value = rates.water;
         }
 
-        Object.keys(draft).forEach(cid => {
-            if (cid === '_rates') return;
-            const entry = draft[cid];
+        Object.keys(draft).forEach(rid => {
+            if (rid === '_rates') return;
+            const entry = draft[rid];
             Object.keys(entry).forEach(type => {
                 const sel = type === 'note'
-                    ? `input.js-meter-note[data-contract="${cid}"]`
-                    : `input[data-contract="${cid}"][data-type="${type}"]`;
+                    ? `input.js-meter-note[data-room="${rid}"]`
+                    : `input[data-room="${rid}"][data-type="${type}"]`;
                 const inp = document.querySelector(sel);
                 if (inp) inp.value = entry[type];
             });
@@ -290,18 +293,17 @@
     }
 
     function checkHasReading(item) {
-        // ห้องว่าง → นับตาม has_reading
-        if (!item.has_tenant) {
-            return item.has_reading === true;
-        }
+        const rid = item.room_id;
+        if (!rid) return item.has_reading === true;
+
         const prevElec = parseFloat(item.prev_elec) || 0;
         const prevWater = parseFloat(item.prev_water) || 0;
-        const currElecInp = document.querySelector(`input[data-contract="${item.contract_id}"][data-type="curr_elec"]`);
-        const currWaterInp = document.querySelector(`input[data-contract="${item.contract_id}"][data-type="curr_water"]`);
+        const currElecInp = document.querySelector(`input[data-room="${rid}"][data-type="curr_elec"]`);
+        const currWaterInp = document.querySelector(`input[data-room="${rid}"][data-type="curr_water"]`);
         const currElec = currElecInp ? (parseFloat(currElecInp.value) || 0) : (parseFloat(item.curr_elec) || 0);
         const currWater = currWaterInp ? (parseFloat(currWaterInp.value) || 0) : (parseFloat(item.curr_water) || 0);
 
-        // ⭐ ต้องกรอกทุกห้อง — ทุก charge_type ต้องจดเลข
+        // ⭐ ต้องกรอกทุกห้อง
         const elecOK = currElec > prevElec;
         const waterOK = currWater > prevWater;
         return elecOK && waterOK;
@@ -433,8 +435,10 @@
         const usedElec = Math.max((parseFloat(currElec) || 0) - prevElec, 0);
         const usedWater = Math.max((parseFloat(currWater) || 0) - prevWater, 0);
 
+        const rid = item.room_id;
+
         return `
-            <div class="p-4 hover:bg-gray-50/50 transition" data-room-row="${item.contract_id || item.room_id}">
+            <div class="p-4 hover:bg-gray-50/50 transition" data-room-row="${rid}">
                 <div class="flex items-center gap-2 mb-3 flex-wrap">
                     <span class="font-bold text-blue-600 text-base">ห้อง ${escapeHtml(item.room_number)}</span>
                     ${hasTenant 
@@ -461,19 +465,19 @@
                                 <input type="number" step="0.01" readonly
                                        value="${prevElec}"
                                        class="w-full px-2 py-2 border border-gray-200 rounded text-sm bg-gray-100 text-gray-600 text-center"
-                                       data-contract="${item.contract_id || ''}" data-type="prev_elec" tabindex="-1">
+                                       data-room="${rid}" data-type="prev_elec" tabindex="-1">
                             </div>
                             <div>
                                 <p class="text-xs text-gray-500 mb-1">หลัง</p>
                                 <input type="number" step="0.01" inputmode="decimal"
                                        value="${currElec}"
                                        class="js-meter-input w-full px-2 py-2 border-2 border-blue-300 rounded text-base focus:ring-2 focus:ring-blue-500 outline-none font-bold text-blue-700 text-center"
-                                       data-contract="${item.contract_id || ''}" data-type="curr_elec" data-room="${item.room_id || ''}">
+                                       data-room="${rid}" data-type="curr_elec">
                             </div>
                             <div>
                                 <p class="text-xs text-gray-500 mb-1">ใช้ไป</p>
                                 <div class="w-full px-2 py-2 border border-gray-200 rounded text-sm bg-green-50 text-green-700 font-bold text-center"
-                                     data-used="elec" data-contract="${item.contract_id || ''}" data-room="${item.room_id || ''}">
+                                     data-used="elec" data-room="${rid}">
                                     ${formatNumber(usedElec)}
                                 </div>
                             </div>
@@ -491,19 +495,19 @@
                                 <input type="number" step="0.01" readonly
                                        value="${prevWater}"
                                        class="w-full px-2 py-2 border border-gray-200 rounded text-sm bg-gray-100 text-gray-600 text-center"
-                                       data-contract="${item.contract_id || ''}" data-type="prev_water" tabindex="-1">
+                                       data-room="${rid}" data-type="prev_water" tabindex="-1">
                             </div>
                             <div>
                                 <p class="text-xs text-gray-500 mb-1">หลัง</p>
                                 <input type="number" step="0.01" inputmode="decimal"
                                        value="${currWater}"
                                        class="js-meter-input w-full px-2 py-2 border-2 border-blue-300 rounded text-base focus:ring-2 focus:ring-blue-500 outline-none font-bold text-blue-700 text-center"
-                                       data-contract="${item.contract_id || ''}" data-type="curr_water" data-room="${item.room_id || ''}">
+                                       data-room="${rid}" data-type="curr_water">
                             </div>
                             <div>
                                 <p class="text-xs text-gray-500 mb-1">ใช้ไป</p>
                                 <div class="w-full px-2 py-2 border border-gray-200 rounded text-sm bg-green-50 text-green-700 font-bold text-center"
-                                     data-used="water" data-contract="${item.contract_id || ''}" data-room="${item.room_id || ''}">
+                                     data-used="water" data-room="${rid}">
                                     ${formatNumber(usedWater)}
                                 </div>
                             </div>
@@ -515,7 +519,7 @@
                     <input type="text" placeholder="หมายเหตุ (ไม่บังคับ)"
                            value="${escapeHtml(item.reading_note || '')}"
                            class="js-meter-note w-full px-3 py-1.5 border border-gray-200 rounded text-xs outline-none focus:border-blue-500"
-                           data-contract="${item.contract_id || ''}" data-room="${item.room_id || ''}">
+                           data-room="${rid}">
                 </div>
             </div>
         `;
@@ -526,11 +530,11 @@
     // ==========================================
     function onMeterInput(e) {
         const inp = e.target;
-        const cid = inp.getAttribute('data-contract');
+        const rid = inp.getAttribute('data-room');
         const type = inp.getAttribute('data-type');
 
         const prevKey = type.endsWith('elec') ? 'prev_elec' : 'prev_water';
-        const prevEl = document.querySelector(`input[data-contract="${cid}"][data-type="${prevKey}"]`);
+        const prevEl = document.querySelector(`input[data-room="${rid}"][data-type="${prevKey}"]`);
         const prevVal = parseFloat(prevEl?.value) || 0;
         const currVal = parseFloat(inp.value) || 0;
 
@@ -543,7 +547,7 @@
         }
 
         const usedType = type.endsWith('elec') ? 'elec' : 'water';
-        const usedEl = document.querySelector(`[data-used="${usedType}"][data-contract="${cid}"]`);
+        const usedEl = document.querySelector(`[data-used="${usedType}"][data-room="${rid}"]`);
         if (usedEl) {
             usedEl.innerText = formatNumber(Math.max(currVal - prevVal, 0));
             if (currVal < prevVal && currVal > 0) {
@@ -605,14 +609,14 @@
         const errors = [];
 
         meterData.forEach(item => {
-            // ⭐ ทุกห้อง — จดทุก charge_type
-            const cid = item.contract_id || '';
-            const rid = item.room_id || '';
-            const prevElec = parseFloat(document.querySelector(`input[data-contract="${cid}"][data-type="prev_elec"]`)?.value) || 0;
-            const prevWater = parseFloat(document.querySelector(`input[data-contract="${cid}"][data-type="prev_water"]`)?.value) || 0;
-            const currElecInp = document.querySelector(`input[data-contract="${cid}"][data-type="curr_elec"]`);
-            const currWaterInp = document.querySelector(`input[data-contract="${cid}"][data-type="curr_water"]`);
-            const noteInp = document.querySelector(`input.js-meter-note[data-contract="${cid}"]`);
+            const rid = item.room_id;
+            if (!rid) return;
+
+            const prevElec = parseFloat(document.querySelector(`input[data-room="${rid}"][data-type="prev_elec"]`)?.value) || 0;
+            const prevWater = parseFloat(document.querySelector(`input[data-room="${rid}"][data-type="prev_water"]`)?.value) || 0;
+            const currElecInp = document.querySelector(`input[data-room="${rid}"][data-type="curr_elec"]`);
+            const currWaterInp = document.querySelector(`input[data-room="${rid}"][data-type="curr_water"]`);
+            const noteInp = document.querySelector(`input.js-meter-note[data-room="${rid}"]`);
 
             const currElec = parseFloat(currElecInp?.value) || 0;
             const currWater = parseFloat(currWaterInp?.value) || 0;
@@ -626,7 +630,7 @@
 
             readings.push({
                 contract_id: item.contract_id ? parseInt(item.contract_id) : null,
-                room_id: rid ? parseInt(rid) : null,
+                room_id: parseInt(rid),
                 elec_prev: prevElec,
                 elec_curr: currElec,
                 water_prev: prevWater,
@@ -655,6 +659,8 @@
                 readings: readings,
                 created_by: processedBy
             };
+
+            console.log('📤 Payload:', payload);
 
             const res = await fetch(`${API_BASE}/meters-save`, {
                 method: 'POST',
@@ -688,7 +694,7 @@
     // 7. Init
     // ==========================================
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('🚀 meters.js v4 เริ่มทำงาน');
+        console.log('🚀 meters.js v4.1 เริ่มทำงาน');
 
         const now = new Date();
         state.year = now.getFullYear();
@@ -719,7 +725,7 @@
 
         setTimeout(() => loadMeterReadings(), 500);
 
-        console.log('✅ meters.js v4 โหลดสำเร็จ');
+        console.log('✅ meters.js v4.1 โหลดสำเร็จ');
     });
 
 })();
