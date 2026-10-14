@@ -1,6 +1,9 @@
 /* ==========================================
- * move-out.js - แจ้งย้ายออก (v5)
- * ⭐ v5: ระบบแจ้ง→อนุมัติ (Pending → Approved/Cancelled)
+ * move-out.js - แจ้งย้ายออก (v6)
+ * ⭐ v6:
+ *   - Modal ยืนยันก่อนอนุมัติ
+ *   - เช็คบิลค้างของสัญญาเดิม (block ถ้ามี)
+ *   - แสดงวันครบสัญญาเดิม + เงินประกัน
  * ========================================== */
 (function() {
     'use strict';
@@ -12,6 +15,7 @@
     let lastBuildingId = '';
     let isLoading = false;
     let selectedTenant = null;
+    let pendingApproveId = null;
 
     const showNotification = window.showNotification;
     const escapeHtml = window.escapeHtml;
@@ -22,6 +26,10 @@
 
     function normalizeStatus(s) {
         return String(s || '').trim().toUpperCase();
+    }
+
+    function isPaidValue(v) {
+        return v === true || v === 'true' || v === 1 || v === '1';
     }
 
     function extractResult(raw) {
@@ -165,9 +173,7 @@
         filtered.forEach(m => {
             const mStatus = normalizeStatus(m.status);
             const isPending = mStatus === 'PENDING';
-            const isApproved = mStatus === 'APPROVED' || mStatus === 'COMPLETED';
 
-            // เงินคืน
             let netHtml = '';
             const returnAmt = parseFloat(m.deposit_return) || 0;
             const shortageAmt = parseFloat(m.deposit_shortage) || 0;
@@ -180,7 +186,6 @@
                 netHtml = `<span class="text-green-600 font-bold">คืน ${formatNumber(returnAmt)} ฿</span>`;
             }
 
-            // ปุ่ม
             let actionButtons = '';
             if (isPending) {
                 actionButtons = `
@@ -211,7 +216,7 @@
         });
 
         tbody.querySelectorAll('.js-approve').forEach(btn => {
-            btn.addEventListener('click', function() { approveMoveOut(parseInt(this.getAttribute('data-approve-id'))); });
+            btn.addEventListener('click', function() { openApproveModal(parseInt(this.getAttribute('data-approve-id'))); });
         });
         tbody.querySelectorAll('.js-cancel').forEach(btn => {
             btn.addEventListener('click', function() { cancelMoveOut(parseInt(this.getAttribute('data-cancel-id'))); });
@@ -249,7 +254,6 @@
                 return true;
             });
 
-            // Filter ผู้เช่าที่เคยย้ายออกแล้ว
             const existingContractIds = new Set(
                 allMoveOuts
                     .filter(m => normalizeStatus(m.status) !== 'CANCELLED')
@@ -646,10 +650,129 @@
     }
 
     // ==========================================
-    // 9. Approve
+    // ⭐ 9. Approve — เปิด Modal + เช็คบิล
     // ==========================================
-    async function approveMoveOut(requestId) {
-        if (!confirm('✅ ยืนยันการอนุมัติย้ายออก?\n\nระบบจะ:\n• ปิดสัญญา\n• คืนห้องเป็น "ว่าง"\n• คำนวณเงินคืน/ยึดประกัน')) return;
+    async function openApproveModal(requestId) {
+        const m = allMoveOuts.find(x => Number(x.id) === Number(requestId));
+        if (!m) { showNotification('⚠️ ไม่พบข้อมูล', 'error'); return; }
+
+        pendingApproveId = requestId;
+
+        const modal = document.getElementById('approveModal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+
+        document.getElementById('approveMoveOutNo').innerText = m.move_out_no || `#${m.id}`;
+        document.getElementById('approveTenantName').innerText = m.tenant_name || '-';
+        document.getElementById('approveRoom').innerText = m.room_number || '-';
+        document.getElementById('approveDeposit').innerText = formatNumber(m.deposit_amount) + ' ฿';
+        document.getElementById('approveContractEnd').innerText = '⏳ กำลังโหลด...';
+
+        const billBox = document.getElementById('approveBillCheck');
+        billBox.innerHTML = '<div class="bg-gray-50 rounded-lg p-4 text-center text-gray-500 text-sm">⏳ กำลังตรวจสอบบิลค้างชำระ...</div>';
+
+        const confirmBtn = document.getElementById('approveConfirmBtn');
+        confirmBtn.disabled = true;
+        document.getElementById('approveConfirmBtnText').innerText = '⏳ กำลังตรวจสอบ...';
+
+        try {
+            const buildingId = getCurrentBuildingId();
+            const [contractsRes, invoicesRes] = await Promise.all([
+                fetch(`${API_BASE}/contracts?building_id=${buildingId}&_t=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).catch(() => []),
+                fetch(`${API_BASE}/invoices?building_id=${buildingId}&_t=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).catch(() => [])
+            ]);
+
+            const contractArr = toArray(contractsRes).filter(c => c.is_deleted !== true && c.is_deleted !== 'true');
+            const invoiceArr = toArray(invoicesRes).filter(i => i.is_deleted !== true && i.is_deleted !== 'true');
+
+            const contract = contractArr.find(c => Number(c.contract_id) === Number(m.contract_id));
+
+            if (contract && contract.end_date) {
+                document.getElementById('approveContractEnd').innerText = formatDateLong(contract.end_date);
+                document.getElementById('approveContractEnd').classList.add('text-blue-700', 'font-bold');
+            } else {
+                document.getElementById('approveContractEnd').innerText = '(ไม่ระบุ)';
+            }
+
+            // หาบิลค้าง
+            let unpaidBills = [];
+            if (m.contract_id) {
+                unpaidBills = invoiceArr.filter(inv =>
+                    Number(inv.contract_id) === Number(m.contract_id) &&
+                    !isPaidValue(inv.is_paid)
+                );
+            }
+
+            if (unpaidBills.length > 0) {
+                const totalUnpaid = unpaidBills.reduce((s, inv) => s + (parseFloat(inv.total_amount) || 0), 0);
+                const billsHtml = unpaidBills.slice(0, 5).map(inv => `
+                    <div class="flex justify-between text-xs py-1 border-b border-red-200 last:border-0">
+                        <span>${escapeHtml(inv.vol_no || '-')} • ${escapeHtml(inv.billing_month || '-')}</span>
+                        <span class="font-bold text-red-700">${formatNumber(inv.total_amount)} ฿</span>
+                    </div>
+                `).join('');
+
+                billBox.innerHTML = `
+                    <div class="bg-red-50 border-2 border-red-300 rounded-lg p-4">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-2xl">⛔</span>
+                            <div>
+                                <p class="font-bold text-red-800">พบบิลค้างชำระ ${unpaidBills.length} รายการ</p>
+                                <p class="text-xs text-red-600">ยอดรวม <strong>${formatNumber(totalUnpaid)} ฿</strong> — ต้องเคลียร์ก่อนอนุมัติ</p>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded p-2 mt-2 mb-3">
+                            ${billsHtml}
+                            ${unpaidBills.length > 5 ? `<p class="text-xs text-gray-500 text-center pt-1">...และอีก ${unpaidBills.length - 5} รายการ</p>` : ''}
+                        </div>
+                        <a href="payments.html" class="block text-center bg-red-600 hover:bg-red-700 text-white font-medium py-2 rounded-lg transition text-sm">
+                            💲 ไปที่หน้าตรวจสอบการชำระเงิน
+                        </a>
+                    </div>
+                `;
+                confirmBtn.disabled = true;
+                document.getElementById('approveConfirmBtnText').innerText = '❌ ต้องเคลียร์บิลก่อน';
+            } else {
+                billBox.innerHTML = `
+                    <div class="bg-green-50 border-2 border-green-300 rounded-lg p-4 flex items-center gap-3">
+                        <span class="text-2xl">✅</span>
+                        <div>
+                            <p class="font-bold text-green-800">เคลียร์บิลครบแล้ว</p>
+                            <p class="text-xs text-green-700">ไม่มีบิลค้างชำระ สามารถอนุมัติได้ทันที</p>
+                        </div>
+                    </div>
+                `;
+                confirmBtn.disabled = false;
+                document.getElementById('approveConfirmBtnText').innerText = '✅ ยืนยันอนุมัติ';
+            }
+        } catch (err) {
+            console.error('❌ ตรวจสอบล้มเหลว:', err);
+            billBox.innerHTML = `
+                <div class="bg-red-50 border-2 border-red-300 rounded-lg p-4">
+                    <p class="font-bold text-red-800">❌ ตรวจสอบไม่สำเร็จ</p>
+                    <p class="text-xs text-red-700">${escapeHtml(err.message)}</p>
+                </div>
+            `;
+            confirmBtn.disabled = true;
+            document.getElementById('approveConfirmBtnText').innerText = '❌ ลองใหม่';
+        }
+    }
+
+    function closeApproveModal() {
+        const modal = document.getElementById('approveModal');
+        if (!modal) return;
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        pendingApproveId = null;
+    }
+
+    async function confirmApprove() {
+        if (!pendingApproveId) return;
+
+        const btn = document.getElementById('approveConfirmBtn');
+        const btnText = document.getElementById('approveConfirmBtnText');
+        btn.disabled = true;
+        btnText.innerText = '⏳ กำลังอนุมัติ...';
 
         const processedBy = localStorage.getItem('admin_username') || 'admin';
 
@@ -657,7 +780,7 @@
             const res = await fetch(`${API_BASE}/move-outs-approve`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ request_id: requestId, approved_by: processedBy })
+                body: JSON.stringify({ request_id: pendingApproveId, approved_by: processedBy })
             });
             const text = await res.text();
             const raw = text ? JSON.parse(text) : null;
@@ -666,11 +789,10 @@
             if (res.ok && result.success === true) {
                 const data = result.data || {};
                 let msg = '✅ อนุมัติย้ายออกสำเร็จ';
-                if (data.deposit_shortage > 0) {
-                    msg += ` (ติด ${formatNumber(data.deposit_shortage)} ฿)`;
-                } else if (data.deposit_return > 0) {
-                    msg += ` (คืน ${formatNumber(data.deposit_return)} ฿)`;
-                }
+                if (data.deposit_shortage > 0) msg += ` (ติด ${formatNumber(data.deposit_shortage)} ฿)`;
+                else if (data.deposit_return > 0) msg += ` (คืน ${formatNumber(data.deposit_return)} ฿)`;
+
+                closeApproveModal();
                 showNotification(msg, 'success');
                 setTimeout(() => loadMoveOuts(), 500);
             } else {
@@ -679,6 +801,8 @@
         } catch (err) {
             console.error('❌ approve failed:', err);
             showNotification('❌ ' + err.message, 'error');
+            btn.disabled = false;
+            btnText.innerText = '✅ ยืนยันอนุมัติ';
         }
     }
 
@@ -817,7 +941,7 @@
     // 13. Init
     // ==========================================
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('🚀 move-out.js v5 เริ่มทำงาน');
+        console.log('🚀 move-out.js v6 เริ่มทำงาน (approve modal + check bills)');
 
         setTimeout(() => loadMoveOuts(), 300);
 
@@ -837,6 +961,9 @@
             window._moTimer = setTimeout(renderMoveOuts, 200);
         });
 
+        const approveBtn = document.getElementById('approveConfirmBtn');
+        if (approveBtn) approveBtn.addEventListener('click', confirmApprove);
+
         window.addEventListener('buildingChanged', () => loadMoveOuts());
 
         lastBuildingId = getCurrentBuildingId();
@@ -851,12 +978,13 @@
         window.openCreateModal = openCreateModal;
         window.closeCreateModal = closeCreateModal;
         window.closeViewModal = closeViewModal;
+        window.closeApproveModal = closeApproveModal;
         window.deleteMoveOut = deleteMoveOut;
-        window.approveMoveOut = approveMoveOut;
+        window.openApproveModal = openApproveModal;
         window.cancelMoveOut = cancelMoveOut;
         window.loadMoveOuts = loadMoveOuts;
 
-        console.log('✅ move-out.js v5 โหลดสำเร็จ');
+        console.log('✅ move-out.js v6 โหลดสำเร็จ');
     });
 
 })();
