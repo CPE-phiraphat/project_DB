@@ -164,11 +164,21 @@
                 </div>
 
                 <div class="border-t border-gray-200 pt-4">
-                    <h4 class="text-sm font-bold text-gray-700 mb-3">⚡ ค่าไฟฟ้า</h4>
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                        <h4 class="text-sm font-bold text-gray-700">⚡ ค่าไฟฟ้า</h4>
+                        <div class="flex items-center gap-3">
+                            <span id="elecMeterStatus" class="text-xs text-gray-400"></span>
+                            <button type="button" id="reloadMeterBtn" class="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 font-medium px-2.5 py-1 rounded-md transition">🔄 โหลดมิเตอร์</button>
+                            <label class="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none">
+                                <input type="checkbox" id="allowEditMeter" class="w-3.5 h-3.5 rounded border-gray-300 cursor-pointer">
+                                🔓 แก้ไขเอง
+                            </label>
+                        </div>
+                    </div>
                     <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
-                        <div><label class="block text-xs font-medium text-gray-600 mb-1">เลขครั้งก่อน</label><input type="number" id="elecPrev" min="0" step="0.01" value="0" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"></div>
-                        <div><label class="block text-xs font-medium text-gray-600 mb-1">เลขครั้งนี้</label><input type="number" id="elecCurr" min="0" step="0.01" value="0" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"></div>
-                        <div><label class="block text-xs font-medium text-gray-600 mb-1">ราคา/หน่วย (฿)</label><input type="number" id="elecUnitPrice" min="0" step="0.01" value="0" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"></div>
+                        <div><label class="block text-xs font-medium text-gray-600 mb-1">เลขครั้งก่อน</label><input type="number" id="elecPrev" min="0" step="0.01" value="0" readonly class="meter-field w-full px-3 py-2 border border-gray-300 rounded-lg outline-none text-sm bg-gray-100"></div>
+                        <div><label class="block text-xs font-medium text-gray-600 mb-1">เลขครั้งนี้</label><input type="number" id="elecCurr" min="0" step="0.01" value="0" readonly class="meter-field w-full px-3 py-2 border border-gray-300 rounded-lg outline-none text-sm bg-gray-100"></div>
+                        <div><label class="block text-xs font-medium text-gray-600 mb-1">ราคา/หน่วย (฿)</label><input type="number" id="elecUnitPrice" min="0" step="0.01" value="0" readonly class="meter-field w-full px-3 py-2 border border-gray-300 rounded-lg outline-none text-sm bg-gray-100"></div>
                         <div>
                             <label class="block text-xs font-medium text-gray-600 mb-1">เหมาจ่าย (฿)</label>
                             <input type="number" id="elecFlatRate" min="0" step="10" value="0" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm">
@@ -179,11 +189,14 @@
                 </div>
 
                 <div class="border-t border-gray-200 pt-4">
-                    <h4 class="text-sm font-bold text-gray-700 mb-3">💧 ค่าน้ำ</h4>
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                        <h4 class="text-sm font-bold text-gray-700">💧 ค่าน้ำ</h4>
+                        <span id="waterMeterStatus" class="text-xs text-gray-400"></span>
+                    </div>
                     <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
-                        <div><label class="block text-xs font-medium text-gray-600 mb-1">เลขครั้งก่อน</label><input type="number" id="waterPrev" min="0" step="0.01" value="0" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"></div>
-                        <div><label class="block text-xs font-medium text-gray-600 mb-1">เลขครั้งนี้</label><input type="number" id="waterCurr" min="0" step="0.01" value="0" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"></div>
-                        <div><label class="block text-xs font-medium text-gray-600 mb-1">ราคา/หน่วย (฿)</label><input type="number" id="waterUnitPrice" min="0" step="0.01" value="0" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"></div>
+                        <div><label class="block text-xs font-medium text-gray-600 mb-1">เลขครั้งก่อน</label><input type="number" id="waterPrev" min="0" step="0.01" value="0" readonly class="meter-field w-full px-3 py-2 border border-gray-300 rounded-lg outline-none text-sm bg-gray-100"></div>
+                        <div><label class="block text-xs font-medium text-gray-600 mb-1">เลขครั้งนี้</label><input type="number" id="waterCurr" min="0" step="0.01" value="0" readonly class="meter-field w-full px-3 py-2 border border-gray-300 rounded-lg outline-none text-sm bg-gray-100"></div>
+                        <div><label class="block text-xs font-medium text-gray-600 mb-1">ราคา/หน่วย (฿)</label><input type="number" id="waterUnitPrice" min="0" step="0.01" value="0" readonly class="meter-field w-full px-3 py-2 border border-gray-300 rounded-lg outline-none text-sm bg-gray-100"></div>
                         <div>
                             <label class="block text-xs font-medium text-gray-600 mb-1">เหมาจ่าย (฿)</label>
                             <input type="number" id="waterFlatRate" min="0" step="10" value="0" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm">
@@ -310,7 +323,7 @@
         </div>
     </div>
 
-    <!-- ⭐ Modal: Billing Preview (ออกบิลรายเดือน) -->
+    <!-- Modal: Billing Preview (ออกบิลรายเดือน) -->
     <div id="generateMonthlyModal" class="fixed inset-0 bg-black/50 z-[60] hidden items-center justify-center p-4">
         <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl modal-animate max-h-[95vh] flex flex-col">
             
@@ -346,9 +359,14 @@
                         <input type="number" id="generateWaterRate" step="0.01" value="0" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-blue-500 bg-white">
                     </div>
                 </div>
-                <button type="button" onclick="loadBillingPreview()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-lg transition flex items-center justify-center gap-2 text-sm">
-                    🔄 โหลดรายการห้อง
-                </button>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <button type="button" onclick="loadBillingPreview()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-lg transition flex items-center justify-center gap-2 text-sm">
+                        🔄 โหลดรายการห้อง
+                    </button>
+                    <button type="button" onclick="autoFillPreviewMeters()" class="w-full bg-amber-500 hover:bg-amber-600 text-white font-medium py-2 rounded-lg transition flex items-center justify-center gap-2 text-sm">
+                        ⚡ โหลดมิเตอร์ทั้งหมด (อัตโนมัติ)
+                    </button>
+                </div>
             </div>
 
             <div id="billingRoomList" class="flex-1 overflow-y-auto p-5">
