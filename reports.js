@@ -5,7 +5,7 @@
 (function() {
     'use strict';
 
-    const API_BASE = 'https://localhost:5678/webhook';
+    const API_BASE = 'https://n8n_mirot.minmark.xyz/webhook';
 
     let lastBuildingId = '';
 
